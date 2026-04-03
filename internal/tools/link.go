@@ -7,12 +7,14 @@ import (
 
 	"github.com/leorca/nkg/internal/api"
 	"github.com/leorca/nkg/internal/client"
+	"github.com/leorca/nkg/internal/jena"
 	"github.com/leorca/nkg/internal/model"
+	"github.com/leorca/nkg/internal/rdf"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func registerLinkPages(s *server.MCPServer, c *client.Client) {
+func registerLinkPages(s *server.MCPServer, c *client.Client, jc *jena.Client) {
 	tool := mcp.NewTool(
 		"link_pages",
 		mcp.WithDescription("Add a semantic relation between two knowledge pages. "+relEnumDescription()),
@@ -73,11 +75,22 @@ func registerLinkPages(s *server.MCPServer, c *client.Client) {
 			return toolError("set relation: %v", err), nil
 		}
 
+		// Sync to Jena if configured
+		jenaSynced := false
+		if jc != nil {
+			if err := jc.Update(ctx, rdf.TripleInsert(fromID, toID, rel)); err == nil {
+				jenaSynced = true
+			}
+		}
+
 		out := map[string]any{
 			"linked":   true,
 			"from":     map[string]any{"id": fromID, "name": fromName},
 			"to":       map[string]any{"id": toID, "name": toName},
 			"relation": rel,
+		}
+		if jc != nil {
+			out["jena_synced"] = jenaSynced
 		}
 
 		data, _ := json.MarshalIndent(out, "", "  ")

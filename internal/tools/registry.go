@@ -4,20 +4,28 @@ import (
 	"fmt"
 
 	"github.com/leorca/nkg/internal/client"
+	"github.com/leorca/nkg/internal/jena"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
 // RegisterAll registers all MCP tools on the server.
-func RegisterAll(s *server.MCPServer, c *client.Client) {
-	registerQueryPages(s, c)
-	registerGetPage(s, c)
-	registerCreatePage(s, c)
-	registerUpdatePage(s, c)
-	registerLinkPages(s, c)
-	registerUnlinkPages(s, c)
-	registerTraverseGraph(s, c)
-	registerDeletePage(s, c)
+// jc may be nil if Jena is not configured; sync tools are skipped in that case.
+func RegisterAll(s *server.MCPServer, nc *client.Client, jc *jena.Client) {
+	registerQueryPages(s, nc)
+	registerGetPage(s, nc)
+	registerCreatePage(s, nc)
+	registerUpdatePage(s, nc)
+	registerLinkPages(s, nc, jc)
+	registerUnlinkPages(s, nc, jc)
+	registerTraverseGraph(s, nc)
+	registerDeletePage(s, nc)
+
+	if jc != nil {
+		registerSyncToJena(s, nc, jc)
+		registerSyncFromJena(s, nc, jc)
+		registerSyncStatus(s, nc, jc)
+	}
 }
 
 // helper to extract a string argument with a default value.

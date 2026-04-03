@@ -7,12 +7,14 @@ import (
 
 	"github.com/leorca/nkg/internal/api"
 	"github.com/leorca/nkg/internal/client"
+	"github.com/leorca/nkg/internal/jena"
 	"github.com/leorca/nkg/internal/model"
+	"github.com/leorca/nkg/internal/rdf"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func registerUnlinkPages(s *server.MCPServer, c *client.Client) {
+func registerUnlinkPages(s *server.MCPServer, c *client.Client, jc *jena.Client) {
 	tool := mcp.NewTool(
 		"unlink_pages",
 		mcp.WithDescription("Remove a semantic relation between two knowledge pages. "+relEnumDescription()),
@@ -78,11 +80,22 @@ func registerUnlinkPages(s *server.MCPServer, c *client.Client) {
 			return toolError("set relation: %v", err), nil
 		}
 
+		// Sync to Jena if configured
+		jenaSynced := false
+		if jc != nil {
+			if err := jc.Update(ctx, rdf.TripleDelete(fromID, toID, rel)); err == nil {
+				jenaSynced = true
+			}
+		}
+
 		out := map[string]any{
 			"unlinked": true,
 			"from":     map[string]any{"id": fromID, "name": fromName},
 			"to":       map[string]any{"id": toID, "name": toName},
 			"relation": rel,
+		}
+		if jc != nil {
+			out["jena_synced"] = jenaSynced
 		}
 
 		data, _ := json.MarshalIndent(out, "", "  ")
