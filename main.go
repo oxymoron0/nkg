@@ -6,6 +6,7 @@ import (
 
 	"github.com/leorca/nkg/internal/client"
 	"github.com/leorca/nkg/internal/config"
+	"github.com/leorca/nkg/internal/jena"
 	"github.com/leorca/nkg/internal/tools"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -36,6 +37,13 @@ func main() {
 	notionClient := client.New(cfg.Token, cfg.DatabaseID)
 	defer notionClient.Close()
 
+	// Create Jena client (optional)
+	var jenaClient *jena.Client
+	if cfg.JenaEndpoint != "" {
+		jenaClient = jena.New(cfg.JenaEndpoint, cfg.JenaUser, cfg.JenaPassword)
+		defer jenaClient.Close()
+	}
+
 	// Create MCP server
 	s := server.NewMCPServer(
 		"nkg",
@@ -44,7 +52,7 @@ func main() {
 	)
 
 	// Register all tools
-	tools.RegisterAll(s, notionClient)
+	tools.RegisterAll(s, notionClient, jenaClient)
 
 	// Start stdio transport
 	if err := server.ServeStdio(s); err != nil {
