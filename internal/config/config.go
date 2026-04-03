@@ -10,8 +10,11 @@ import (
 
 // Config holds the application configuration.
 type Config struct {
-	DatabaseID string `json:"database_id"`
-	Token      string `json:"-"`
+	DatabaseID   string `json:"database_id"`
+	Token        string `json:"-"`
+	JenaEndpoint string `json:"jena_endpoint"`
+	JenaUser     string `json:"jena_id"`
+	JenaPassword string `json:"jena_passwd"`
 }
 
 // Load reads config.json and notion.token from the project root.
