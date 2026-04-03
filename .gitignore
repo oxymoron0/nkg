@@ -1,0 +1,13 @@
+# Secrets & config
+token/
+/config/
+
+# Build artifacts
+nkg
+*.exe
+
+# Local MCP config (contains absolute paths)
+.mcp.json
+
+# Playwright MCP artifacts
+.playwright-mcp/
