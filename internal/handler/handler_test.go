@@ -434,6 +434,83 @@ func TestSync_InvalidMode(t *testing.T) {
 	}
 }
 
+// --- Docs / OpenAPI tests ---
+
+func TestOpenAPISpec_Served(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/openapi.yaml", nil)
+	rec := httptest.NewRecorder()
+	s.handleOpenAPISpec(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	ct := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/yaml") {
+		t.Errorf("Content-Type = %q, want application/yaml*", ct)
+	}
+
+	body := rec.Body.String()
+	if !strings.HasPrefix(body, "openapi: 3.0.3") {
+		t.Errorf("body should start with 'openapi: 3.0.3', got: %.60q", body)
+	}
+	if !strings.Contains(body, "/api/v1/graph") {
+		t.Error("spec should describe /api/v1/graph")
+	}
+	if !strings.Contains(body, "/api/v1/pages/{id}/relations") {
+		t.Error("spec should describe /api/v1/pages/{id}/relations")
+	}
+}
+
+func TestSwaggerUI_Served(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docs", nil)
+	rec := httptest.NewRecorder()
+	s.handleSwaggerUI(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	ct := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html*", ct)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "<div id=\"swagger-ui\"></div>") {
+		t.Error("body should contain the swagger-ui mount div")
+	}
+	if !strings.Contains(body, "/api/v1/openapi.yaml") {
+		t.Error("body should reference the openapi.yaml URL")
+	}
+}
+
+func TestRoutes_DocsRegistered(t *testing.T) {
+	mux := NewServeMux(nil, nil)
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/v1/docs"},
+		{"GET", "/api/v1/openapi.yaml"},
+	}
+
+	for _, tt := range routes {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("%s %s returned %d, want 200", tt.method, tt.path, rec.Code)
+			}
+		})
+	}
+}
+
 func TestSync_MultipleInvalidModes(t *testing.T) {
 	tests := []struct {
 		name string

@@ -21,6 +21,8 @@ func NewServeMux(nc *client.Client, jc *jena.Client) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /api/v1/docs", s.handleSwaggerUI)
+	mux.HandleFunc("GET /api/v1/openapi.yaml", s.handleOpenAPISpec)
 	mux.HandleFunc("GET /api/v1/graph", s.handleGraph)
 	mux.HandleFunc("GET /api/v1/pages", s.handleListPages)
 	mux.HandleFunc("GET /api/v1/pages/{id}", s.handleGetPage)
