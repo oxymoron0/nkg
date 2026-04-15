@@ -57,10 +57,18 @@ body,
   text-decoration: underline;
 }
 
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+}
+
 .graph {
   flex: 1;
   min-height: 0;
   position: relative;
+  background: #0f1419;
 }
 
 .status,
@@ -75,4 +83,269 @@ body,
 
 .status {
   color: #9ca3af;
+}
+
+/* ----- Relation filter ----- */
+
+.relation-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  background: #0b1016;
+  border-bottom: 1px solid #1f2937;
+}
+
+.relation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #1f2937;
+  border-radius: 14px;
+  background: transparent;
+  color: #e6e6e6;
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.relation-chip:hover {
+  background: #111826;
+  border-color: #2f3f56;
+}
+
+.relation-chip.off {
+  opacity: 0.4;
+}
+
+.relation-chip.partial {
+  opacity: 0.75;
+  border-style: dashed;
+}
+
+.relation-chip .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.relation-chip .label {
+  font-weight: 500;
+}
+
+.relation-chip .count {
+  color: #9ca3af;
+  font-size: 11px;
+  min-width: 20px;
+  text-align: right;
+}
+
+.relation-filter-spacer {
+  flex: 1;
+}
+
+.relation-chip-action {
+  padding: 5px 10px;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.relation-chip-action:hover {
+  color: #e6e6e6;
+  border-color: #2f3f56;
+}
+
+/* ----- Details panel ----- */
+
+.details-panel {
+  width: 320px;
+  min-width: 320px;
+  max-width: 320px;
+  border-left: 1px solid #1f2937;
+  background: #0b1016;
+  overflow-y: auto;
+  padding: 16px 18px 24px;
+  font-size: 13px;
+}
+
+.details-section {
+  padding: 12px 0;
+  border-bottom: 1px solid #1f2937;
+}
+
+.details-section:last-child {
+  border-bottom: none;
+}
+
+.details-section h2,
+.details-section h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ca3af;
+}
+
+.details-title {
+  margin: 0;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  color: #e6e6e6 !important;
+}
+
+.details-close-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.details-close {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 6px;
+}
+.details-close:hover {
+  color: #e6e6e6;
+}
+
+.details-dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.details-dl dt {
+  color: #9ca3af;
+}
+
+.details-dl dd {
+  margin: 0;
+}
+
+.details-dl code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.details-summary {
+  margin: 10px 0 0;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.relation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.relation-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.relation-list code {
+  flex: 1;
+  color: #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.relation-list .swatch,
+.relation-group-header .swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.relation-list .count {
+  color: #9ca3af;
+  min-width: 24px;
+  text-align: right;
+}
+
+.relation-group {
+  margin-bottom: 10px;
+}
+
+.relation-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.relation-group-header code {
+  flex: 1;
+  color: #9ca3af;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.relation-group-header .count {
+  color: #9ca3af;
+  min-width: 20px;
+  text-align: right;
+}
+
+.relation-group ul {
+  list-style: none;
+  padding: 0 0 0 16px;
+  margin: 0;
+}
+
+.relation-group ul li {
+  margin: 2px 0;
+}
+
+.link-button {
+  background: transparent;
+  border: none;
+  color: #60a5fa;
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+  color: #93c5fd;
+}
+
+.details-hint {
+  color: #6b7280;
+  font-size: 11px;
+  font-style: italic;
+  padding-top: 16px;
+}
+
+.details-empty {
+  color: #6b7280;
+  font-size: 11px;
+  font-style: italic;
 }
