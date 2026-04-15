@@ -1,0 +1,475 @@
+openapi: 3.0.3
+info:
+  title: NKG (Notion Knowledge Graph) HTTP API
+  description: |
+    REST API for the Notion Knowledge Graph — web visualization and CRUD
+    operations against a Notion `Knowledges` database backed by
+    SKOS / DCTERMS / Schema.org ontology.
+
+    The API wraps Notion's REST API and, when configured, keeps an Apache
+    Jena SPARQL store in sync via compensating transactions.
+
+    Response envelope:
+
+    - Success: `{"data": <payload>}`
+    - Error:   `{"error": {"code": "...", "message": "..."}}`
+  version: "1.0.0"
+  contact:
+    name: NKG project
+    url: https://github.com/leorca/nkg
+
+servers:
+  - url: /
+    description: The server where this spec is served from
+
+tags:
+  - name: graph
+    description: Full knowledge-graph data for visualization
+  - name: pages
+    description: Knowledge page queries and inspection
+  - name: relations
+    description: Page-to-page relation management
+  - name: sync
+    description: Notion ↔ Jena synchronization
+  - name: system
+    description: Health and API documentation
+
+paths:
+  /healthz:
+    get:
+      tags: [system]
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+
+  /api/v1/graph:
+    get:
+      tags: [graph]
+      summary: Fetch full knowledge graph
+      description: |
+        Returns every knowledge page as a node and every relation between
+        known pages as an edge. Designed to be called once per page load
+        so the frontend can render the whole graph without additional
+        round-trips.
+      parameters:
+        - name: relations
+          in: query
+          required: false
+          description: |
+            Comma-separated list of relation names to include. When
+            omitted, every relation is returned.
+          schema:
+            type: string
+          example: "skos:broader,dcterms:hasPart"
+      responses:
+        "200":
+          description: Full graph data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Graph"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/pages:
+    get:
+      tags: [pages]
+      summary: List pages
+      parameters:
+        - name: name
+          in: query
+          required: false
+          description: Title filter (substring unless `exact=true`)
+          schema:
+            type: string
+        - name: exact
+          in: query
+          required: false
+          description: When `true`, the `name` filter must match exactly
+          schema:
+            type: string
+            enum: ["true", "false"]
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of pages to return. `0` means no limit.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: List of page summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                      pages:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/PageSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/pages/{id}:
+    get:
+      tags: [pages]
+      summary: Get a single page with relations
+      parameters:
+        - $ref: "#/components/parameters/PageID"
+      responses:
+        "200":
+          description: Page detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Page"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/pages/{id}/relations:
+    post:
+      tags: [relations]
+      summary: Add a relation to a page
+      description: |
+        Creates a relation `{id} → target_id` with the given relation name.
+        When a Jena endpoint is configured, Notion and Jena are updated
+        atomically via a compensating transaction.
+      parameters:
+        - $ref: "#/components/parameters/PageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelationRequest"
+      responses:
+        "200":
+          description: Relation added (or already present)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RelationResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [relations]
+      summary: Remove a relation from a page
+      description: |
+        Idempotent. If the target is already absent, the response body
+        includes `already_absent: true` and no Notion API call is made.
+      parameters:
+        - $ref: "#/components/parameters/PageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelationRequest"
+      responses:
+        "200":
+          description: Relation removed (or already absent)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RelationResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/sync:
+    post:
+      tags: [sync]
+      summary: Synchronize Notion to Jena
+      description: |
+        Only registered when a Jena endpoint is configured.
+        - `full`: drops and re-inserts the entire named graph.
+        - `incremental`: upserts only pages updated since the last sync.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [full, incremental]
+                  default: incremental
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SyncResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/sync/status:
+    get:
+      tags: [sync]
+      summary: Compare Notion and Jena state
+      description: |
+        Only registered when a Jena endpoint is configured. **Slow**:
+        iterates every Notion page and runs multiple SPARQL queries
+        against Jena. Not suitable for interactive polling.
+      responses:
+        "200":
+          description: Diff result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SyncStatus"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  parameters:
+    PageID:
+      name: id
+      in: path
+      required: true
+      description: Notion page UUID (dashed or undashed)
+      schema:
+        type: string
+
+  schemas:
+    PageSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        summary:
+          type: string
+        last_edited_time:
+          type: string
+          format: date-time
+
+    Page:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        summary:
+          type: string
+        last_edited_time:
+          type: string
+          format: date-time
+        relations:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/PageRef"
+
+    PageRef:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    Graph:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEdge"
+        meta:
+          $ref: "#/components/schemas/GraphMeta"
+
+    GraphNode:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        summary:
+          type: string
+        group:
+          type: string
+          example: concept
+
+    GraphEdge:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Stable edge identifier (`<source>|<relation>|<target>`)
+        source:
+          type: string
+        target:
+          type: string
+        label:
+          type: string
+        relation:
+          type: string
+
+    GraphMeta:
+      type: object
+      properties:
+        node_count:
+          type: integer
+        edge_count:
+          type: integer
+        relations:
+          type: array
+          items:
+            type: string
+
+    RelationName:
+      type: string
+      enum:
+        - "skos:broader"
+        - "skos:narrower"
+        - "dcterms:hasPart"
+        - "dcterms:isPartOf"
+        - "dcterms:requires"
+        - "dcterms:isRequiredBy"
+        - "dcterms:references"
+        - "dcterms:isReferencedBy"
+        - "skos:related"
+        - "schema:previousItem"
+        - "schema:nextItem"
+
+    RelationRequest:
+      type: object
+      required: [target_id, relation]
+      properties:
+        target_id:
+          type: string
+          description: Target Notion page UUID
+        relation:
+          $ref: "#/components/schemas/RelationName"
+
+    RelationResult:
+      type: object
+      properties:
+        linked:
+          type: boolean
+        unlinked:
+          type: boolean
+        from:
+          type: string
+        to:
+          type: string
+        relation:
+          $ref: "#/components/schemas/RelationName"
+        jena_synced:
+          type: boolean
+        already_existed:
+          type: boolean
+        already_absent:
+          type: boolean
+
+    SyncResult:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [full, incremental]
+        synced:
+          type: integer
+          description: Number of pages successfully synced
+        errors:
+          type: array
+          description: Present only when one or more pages failed
+          items:
+            type: string
+
+    SyncStatus:
+      type: object
+      properties:
+        consistent:
+          type: boolean
+        notion_only:
+          type: integer
+        jena_only:
+          type: integer
+        notion_only_details:
+          type: array
+          items:
+            type: string
+        jena_only_details:
+          type: array
+          items:
+            type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
