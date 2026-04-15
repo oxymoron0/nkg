@@ -434,6 +434,53 @@ func TestSync_InvalidMode(t *testing.T) {
 	}
 }
 
+// --- Graph relation filter tests ---
+
+func TestParseRelationFilter(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want map[string]bool
+	}{
+		{"empty string returns nil", "", nil},
+		{"whitespace only returns nil", "   ", nil},
+		{"single relation", "skos:broader", map[string]bool{"skos:broader": true}},
+		{
+			"multiple relations",
+			"skos:broader,dcterms:hasPart",
+			map[string]bool{"skos:broader": true, "dcterms:hasPart": true},
+		},
+		{
+			"trims whitespace around tokens",
+			" skos:broader , dcterms:hasPart ",
+			map[string]bool{"skos:broader": true, "dcterms:hasPart": true},
+		},
+		{
+			"skips empty tokens between commas",
+			"skos:broader,,dcterms:hasPart",
+			map[string]bool{"skos:broader": true, "dcterms:hasPart": true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseRelationFilter(tt.in)
+			if (got == nil) != (tt.want == nil) {
+				t.Fatalf("got nil=%v, want nil=%v (got=%v, want=%v)",
+					got == nil, tt.want == nil, got, tt.want)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("len=%d, want %d (got=%v)", len(got), len(tt.want), got)
+			}
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("got[%q] = %v, want %v", k, got[k], v)
+				}
+			}
+		})
+	}
+}
+
 // --- Docs / OpenAPI tests ---
 
 func TestOpenAPISpec_Served(t *testing.T) {
