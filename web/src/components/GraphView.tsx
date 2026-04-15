@@ -1,78 +1,137 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
+import ForceGraph2D from 'react-force-graph-2d';
+import { polygonHull } from 'd3-polygon';
 import type { GraphData, GraphLink, GraphNode } from '../api/graph';
+import type { GraphIndex } from '../lib/graphIndex';
+import { CONTAINMENT_RELATIONS, bfsDescendants } from '../lib/graphIndex';
 import { canonicalEdges } from '../lib/canonicalEdges';
-import { getRelationStyle } from '../lib/relationStyle';
+import { relationStyle, type ArrowKind } from '../lib/relationStyle';
+// We keep the graph topology stable even when the user toggles relation
+// filters, so react-force-graph does not re-initialise the simulation and
+// nodes never get flung off-screen. Filtering happens at draw time only.
 
 type Props = {
   data: GraphData;
+  index: GraphIndex;
+  selectedId: string | null;
+  visibleRelations: Set<string>;
+  onSelect: (id: string | null) => void;
 };
 
-type InternalNode = GraphNode & {
-  degree: number;
-  radius: number;
-  x?: number;
-  y?: number;
+type Positioned = GraphNode & { x?: number; y?: number };
+
+type Hull = {
+  rootId: string;
+  rootLabel: string;
+  members: Set<string>;
 };
 
-type InternalLink = GraphLink & {
-  curvature: number;
-};
-
-type InternalData = {
-  nodes: InternalNode[];
-  links: InternalLink[];
-};
-
-const MIN_RADIUS = 7;
-const MAX_RADIUS = 22;
+const NODE_COLOR = '#5D6CC1';
+const NODE_TOP_LEVEL_COLOR = '#3A4894';
+const NODE_HOVER_RING = '#9ca3af';
+const NODE_SELECTED_RING = '#fbbf24';
+const LABEL_COLOR = '#e6e6e6';
 const DIM_ALPHA = 0.15;
-const EDGE_LABEL_MIN_SCALE = 1.2;
-const NODE_LABEL_MIN_SCALE = 0.85;
-const HUB_DEGREE = 4;
 
-function computeInternalData(data: GraphData): InternalData {
-  const canonical = canonicalEdges(data.links);
+const HULL_FILL = 'rgba(96, 165, 250, 0.10)';
+const HULL_FILL_SELECTED = 'rgba(96, 165, 250, 0.22)';
+const HULL_STROKE = 'rgba(96, 165, 250, 0.40)';
+const HULL_LABEL_COLOR = 'rgba(147, 197, 253, 0.85)';
 
-  const degree = new Map<string, number>();
-  for (const link of canonical) {
-    degree.set(link.source, (degree.get(link.source) ?? 0) + 1);
-    degree.set(link.target, (degree.get(link.target) ?? 0) + 1);
+function nodeRadius(node: GraphNode, index: GraphIndex): number {
+  const degree = index.degree.get(node.id) ?? 0;
+  return 6 + 2 * Math.log(1 + degree);
+}
+
+function drawArrow(
+  ctx: CanvasRenderingContext2D,
+  tipX: number,
+  tipY: number,
+  angle: number,
+  kind: ArrowKind,
+  color: string,
+) {
+  if (kind === 'none') return;
+  const size = 7;
+  ctx.save();
+  ctx.translate(tipX, tipY);
+  ctx.rotate(angle);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+
+  switch (kind) {
+    case 'filled-triangle':
+    case 'small-arrow':
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-size, -size / 2);
+      ctx.lineTo(-size, size / 2);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    case 'open-triangle':
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-size, -size / 2);
+      ctx.lineTo(-size, size / 2);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+    case 'diamond':
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-size / 2, -size / 2);
+      ctx.lineTo(-size, 0);
+      ctx.lineTo(-size / 2, size / 2);
+      ctx.closePath();
+      ctx.fill();
+      break;
   }
-
-  const nodes: InternalNode[] = data.nodes.map((n) => {
-    const d = degree.get(n.id) ?? 0;
-    const radius = Math.min(MAX_RADIUS, Math.max(MIN_RADIUS, MIN_RADIUS + Math.sqrt(d) * 2.5));
-    return { ...n, degree: d, radius };
-  });
-
-  // Spread multi-edges between the same unordered pair along different
-  // curvatures so arrows don't overlap.
-  const pairCount = new Map<string, number>();
-  const links: InternalLink[] = canonical.map((link) => {
-    const key = link.source < link.target
-      ? `${link.source}|${link.target}`
-      : `${link.target}|${link.source}`;
-    const index = pairCount.get(key) ?? 0;
-    pairCount.set(key, index + 1);
-    const curvature = index === 0 ? 0 : 0.12 * ((index + 1) >> 1) * (index % 2 === 0 ? 1 : -1);
-    return { ...link, curvature };
-  });
-
-  return { nodes, links };
+  ctx.restore();
 }
 
-function linkEndpointId(end: string | { id?: string } | undefined): string | undefined {
-  if (end == null) return undefined;
-  if (typeof end === 'string') return end;
-  return end.id;
+function pointOnQuadratic(
+  sx: number,
+  sy: number,
+  cx: number,
+  cy: number,
+  tx: number,
+  ty: number,
+  t: number,
+): { x: number; y: number; angle: number } {
+  const mt = 1 - t;
+  const x = mt * mt * sx + 2 * mt * t * cx + t * t * tx;
+  const y = mt * mt * sy + 2 * mt * t * cy + t * t * ty;
+  // derivative for angle
+  const dx = 2 * mt * (cx - sx) + 2 * t * (tx - cx);
+  const dy = 2 * mt * (cy - sy) + 2 * t * (ty - cy);
+  return { x, y, angle: Math.atan2(dy, dx) };
 }
 
-export function GraphView({ data }: Props) {
+function controlPoint(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+  curvature: number,
+): { cx: number; cy: number } {
+  // Perpendicular offset at the midpoint.
+  const mx = (sx + tx) / 2;
+  const my = (sy + ty) / 2;
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const offset = len * curvature;
+  return { cx: mx + nx * offset, cy: my + ny * offset };
+}
+
+export function GraphView({ data, index, selectedId, visibleRelations, onSelect }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const fgRef = useRef<ForceGraphMethods<InternalNode, InternalLink> | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoverId, setHoverId] = useState<string | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -85,194 +144,289 @@ export function GraphView({ data }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  const processed = useMemo(() => computeInternalData(data), [data]);
-
-  const adjacency = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const link of processed.links) {
-      if (!map.has(link.source)) map.set(link.source, new Set());
-      if (!map.has(link.target)) map.set(link.target, new Set());
-      map.get(link.source)!.add(link.target);
-      map.get(link.target)!.add(link.source);
+  // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
+  // single direction, then give each concrete canonical link a stable
+  // curvature so overlapping pairs render on different lanes.
+  const { canonicalData, curvatureById } = useMemo(() => {
+    const canon = canonicalEdges(data.links);
+    const pairCount = new Map<string, number>();
+    const curvature = new Map<string, number>();
+    for (const link of canon) {
+      const src = typeof link.source === 'string' ? link.source : link.source.id;
+      const tgt = typeof link.target === 'string' ? link.target : link.target.id;
+      const key = src < tgt ? `${src}|${tgt}` : `${tgt}|${src}`;
+      const idx = pairCount.get(key) ?? 0;
+      pairCount.set(key, idx + 1);
+      // 1st concrete edge straight, 2nd ±0.18, 3rd ±0.35, …
+      const magnitude = 0.18 * ((idx + 1) >> 1);
+      const sign = idx % 2 === 0 ? 1 : -1;
+      const c = idx === 0 ? 0 : magnitude * sign;
+      curvature.set(link.id, c);
     }
-    return map;
-  }, [processed]);
+    return {
+      canonicalData: { nodes: data.nodes, links: canon },
+      curvatureById: curvature,
+    };
+  }, [data.nodes, data.links]);
 
-  useEffect(() => {
-    const fg = fgRef.current;
-    if (!fg) return;
-    const charge = fg.d3Force('charge') as unknown as
-      | { strength: (v: number) => unknown }
-      | undefined;
-    charge?.strength(-700);
-    const linkForce = fg.d3Force('link') as unknown as
-      | { distance: (v: number) => unknown }
-      | undefined;
-    linkForce?.distance(130);
-  }, [processed]);
-
-  const isDimmed = (nodeId: string): boolean => {
-    if (!hoveredId) return false;
-    if (nodeId === hoveredId) return false;
-    return !adjacency.get(hoveredId)?.has(nodeId);
+  const linkCurvatureFor = (link: GraphLink): number => {
+    return curvatureById.get(link.id) ?? 0;
   };
 
-  const linkIsDimmed = (link: InternalLink): boolean => {
-    if (!hoveredId) return false;
-    const src = linkEndpointId(link.source as unknown as string | { id?: string });
-    const dst = linkEndpointId(link.target as unknown as string | { id?: string });
-    return src !== hoveredId && dst !== hoveredId;
+  // Compute which members/roots need hulls. Actual polygon geometry is
+  // recomputed every render frame because node positions change during the
+  // force simulation.
+  const hullPlan: Hull[] = useMemo(() => {
+    const roots = selectedId ? [selectedId] : Array.from(index.topLevel);
+    const plan: Hull[] = [];
+    for (const rootId of roots) {
+      const members = bfsDescendants(index, rootId, CONTAINMENT_RELATIONS);
+      if (members.size < 2) continue;
+      const root = index.nodeById.get(rootId);
+      plan.push({ rootId, rootLabel: root?.label ?? rootId, members });
+    }
+    return plan;
+  }, [index, selectedId]);
+
+  const connectedIds: Set<string> | null = useMemo(() => {
+    if (!hoverId) return null;
+    const s = new Set<string>([hoverId]);
+    for (const link of canonicalData.links) {
+      if (!visibleRelations.has(link.relation)) continue;
+      const sid = typeof link.source === 'string' ? link.source : link.source.id;
+      const tid = typeof link.target === 'string' ? link.target : link.target.id;
+      if (sid === hoverId) s.add(tid);
+      if (tid === hoverId) s.add(sid);
+    }
+    return s;
+  }, [hoverId, canonicalData.links, visibleRelations]);
+
+  const isNodeDimmed = (id: string) => connectedIds !== null && !connectedIds.has(id);
+
+  const drawHullOverlay = (ctx: CanvasRenderingContext2D, globalScale: number) => {
+    for (const hull of hullPlan) {
+      const pts: [number, number][] = [];
+      for (const memberId of hull.members) {
+        const n = index.nodeById.get(memberId) as Positioned | undefined;
+        if (!n || n.x === undefined || n.y === undefined) continue;
+        pts.push([n.x, n.y]);
+      }
+      if (pts.length < 2) continue;
+
+      // Pad: push each point outward from its own mean by a scale-aware
+      // offset so nodes sit inside the hull.
+      const pad = 18 / globalScale;
+      let cx = 0;
+      let cy = 0;
+      for (const [x, y] of pts) {
+        cx += x;
+        cy += y;
+      }
+      cx /= pts.length;
+      cy /= pts.length;
+      const padded: [number, number][] = pts.map(([x, y]) => {
+        const dx = x - cx;
+        const dy = y - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        return [x + (dx / len) * pad, y + (dy / len) * pad];
+      });
+
+      const hullPts = polygonHull(padded);
+      if (!hullPts || hullPts.length === 0) continue;
+
+      ctx.beginPath();
+      ctx.moveTo(hullPts[0][0], hullPts[0][1]);
+      for (let i = 1; i < hullPts.length; i++) {
+        ctx.lineTo(hullPts[i][0], hullPts[i][1]);
+      }
+      ctx.closePath();
+      ctx.fillStyle = selectedId === hull.rootId ? HULL_FILL_SELECTED : HULL_FILL;
+      ctx.fill();
+      ctx.strokeStyle = HULL_STROKE;
+      ctx.lineWidth = 1.2 / globalScale;
+      ctx.stroke();
+
+      // Label near top-most vertex.
+      let top = hullPts[0];
+      for (const p of hullPts) {
+        if (p[1] < top[1]) top = p;
+      }
+      const fontSize = 11 / globalScale;
+      ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
+      ctx.fillStyle = HULL_LABEL_COLOR;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(hull.rootLabel, top[0] + 4 / globalScale, top[1] - 4 / globalScale);
+    }
   };
 
   return (
     <div ref={containerRef} className="graph">
       {size.width > 0 && size.height > 0 && (
-        <ForceGraph2D<InternalNode, InternalLink>
-          ref={fgRef}
-          graphData={processed}
+        <ForceGraph2D
+          graphData={canonicalData}
           width={size.width}
           height={size.height}
           backgroundColor="#0f1419"
           nodeId="id"
-          nodeVal={(n) => (n as InternalNode).radius}
-          nodeRelSize={1}
-          cooldownTicks={200}
-          d3AlphaDecay={0.02}
-          d3VelocityDecay={0.3}
-          onNodeHover={(node) => setHoveredId(node?.id ?? null)}
-          onEngineStop={() => {
-            fgRef.current?.zoomToFit(400, 60);
-          }}
-          nodeCanvasObjectMode={() => 'replace'}
-          nodeCanvasObject={(rawNode, ctx, globalScale) => {
-            const node = rawNode as InternalNode;
-            if (node.x === undefined || node.y === undefined) return;
-            const dimmed = isDimmed(node.id);
-            const alpha = dimmed ? DIM_ALPHA : 1;
-            const isHover = hoveredId === node.id;
+          nodeLabel={(n) => (n as GraphNode).label}
+          linkCurvature={(link) => linkCurvatureFor(link as GraphLink)}
+          cooldownTicks={120}
+          onRenderFramePre={(ctx, scale) => drawHullOverlay(ctx, scale)}
+          onNodeClick={(node) => onSelect((node as GraphNode).id)}
+          onBackgroundClick={() => onSelect(null)}
+          onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
+          nodeCanvasObject={(node, ctx, globalScale) => {
+            const n = node as Positioned;
+            if (n.x === undefined || n.y === undefined) return;
+            const radius = nodeRadius(n, index);
+            const isTopLevel = index.topLevel.has(n.id);
+            const isSelected = n.id === selectedId;
+            const dimmed = isNodeDimmed(n.id);
 
-            ctx.globalAlpha = alpha;
-
+            ctx.globalAlpha = dimmed ? DIM_ALPHA : 1;
             ctx.beginPath();
-            ctx.arc(node.x, node.y, node.radius, 0, 2 * Math.PI, false);
-            ctx.fillStyle = '#1f2937';
+            ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = isTopLevel ? NODE_TOP_LEVEL_COLOR : NODE_COLOR;
             ctx.fill();
-            ctx.lineWidth = isHover ? 2.5 : 1.5;
-            ctx.strokeStyle = isHover ? '#facc15' : '#60a5fa';
-            ctx.stroke();
 
-            const showLabel =
-              isHover ||
-              globalScale >= NODE_LABEL_MIN_SCALE ||
-              node.degree >= HUB_DEGREE;
-
-            if (showLabel) {
-              const fontSize = Math.max(10, 12 / globalScale);
-              ctx.font = `${fontSize}px system-ui, -apple-system, sans-serif`;
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-
-              const label = node.label;
-              const textWidth = ctx.measureText(label).width;
-              const padding = 4;
-
-              if (textWidth + padding * 2 <= node.radius * 2) {
-                ctx.fillStyle = '#e6e6e6';
-                ctx.fillText(label, node.x, node.y);
-              } else {
-                const labelY = node.y + node.radius + fontSize * 0.8;
-                ctx.fillStyle = 'rgba(15, 20, 25, 0.85)';
-                ctx.fillRect(
-                  node.x - textWidth / 2 - padding,
-                  labelY - fontSize / 2 - 1,
-                  textWidth + padding * 2,
-                  fontSize + 2,
-                );
-                ctx.fillStyle = '#e6e6e6';
-                ctx.fillText(label, node.x, labelY);
-              }
+            if (isSelected) {
+              ctx.lineWidth = 2.4 / globalScale;
+              ctx.strokeStyle = NODE_SELECTED_RING;
+              ctx.stroke();
+            } else if (isTopLevel) {
+              ctx.lineWidth = 1.2 / globalScale;
+              ctx.strokeStyle = '#ffffff';
+              ctx.stroke();
+            } else if (hoverId === n.id) {
+              ctx.lineWidth = 1.5 / globalScale;
+              ctx.strokeStyle = NODE_HOVER_RING;
+              ctx.stroke();
             }
 
+            const fontSize = 12 / globalScale;
+            ctx.font = `${fontSize}px system-ui, sans-serif`;
+            ctx.fillStyle = LABEL_COLOR;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(n.label, n.x, n.y + radius + 2 / globalScale);
             ctx.globalAlpha = 1;
           }}
-          nodePointerAreaPaint={(rawNode, color, ctx) => {
-            const node = rawNode as InternalNode;
-            if (node.x === undefined || node.y === undefined) return;
+          nodePointerAreaPaint={(node, color, ctx) => {
+            const n = node as Positioned;
+            if (n.x === undefined || n.y === undefined) return;
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(node.x, node.y, node.radius + 2, 0, 2 * Math.PI, false);
+            ctx.arc(n.x, n.y, nodeRadius(n, index) + 2, 0, Math.PI * 2);
             ctx.fill();
           }}
-          linkColor={(link) => {
-            const style = getRelationStyle((link as InternalLink).relation);
-            return linkIsDimmed(link as InternalLink)
-              ? applyAlpha(style.color, DIM_ALPHA)
-              : style.color;
-          }}
-          linkLineDash={(link) => getRelationStyle((link as InternalLink).relation).dash}
-          linkWidth={(link) => getRelationStyle((link as InternalLink).relation).width}
-          linkCurvature={(link) => (link as InternalLink).curvature}
-          linkDirectionalArrowLength={(link) =>
-            getRelationStyle((link as InternalLink).relation).arrowLength
-          }
-          linkDirectionalArrowRelPos={0.95}
-          linkDirectionalArrowColor={(link) =>
-            getRelationStyle((link as InternalLink).relation).color
-          }
-          linkCanvasObjectMode={() => 'after'}
-          linkCanvasObject={(rawLink, ctx, globalScale) => {
-            if (globalScale < EDGE_LABEL_MIN_SCALE) return;
-            const link = rawLink as InternalLink;
-            const source = link.source as unknown as { x?: number; y?: number };
-            const target = link.target as unknown as { x?: number; y?: number };
+          linkCanvasObjectMode={() => 'replace'}
+          linkCanvasObject={(link, ctx, globalScale) => {
+            const l = link as GraphLink;
+            if (!visibleRelations.has(l.relation)) return;
+            const source = l.source as Positioned;
+            const target = l.target as Positioned;
             if (
-              source?.x === undefined ||
-              source?.y === undefined ||
-              target?.x === undefined ||
-              target?.y === undefined
+              typeof source !== 'object' ||
+              typeof target !== 'object' ||
+              source.x === undefined ||
+              source.y === undefined ||
+              target.x === undefined ||
+              target.y === undefined
             ) {
               return;
             }
 
-            const style = getRelationStyle(link.relation);
-            const midX = (source.x + target.x) / 2;
-            const midY = (source.y + target.y) / 2;
-            const fontSize = 9 / globalScale;
-            ctx.font = `${fontSize}px system-ui, -apple-system, sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
+            const style = relationStyle(l.relation);
+            const curvature = linkCurvatureFor(l);
+            const sourceRadius = nodeRadius(source, index);
+            const targetRadius = nodeRadius(target, index);
 
-            const text = style.label;
-            const textWidth = ctx.measureText(text).width;
-            const padding = 2;
+            const sourceDimmed = isNodeDimmed(source.id);
+            const targetDimmed = isNodeDimmed(target.id);
+            const dimmed = sourceDimmed || targetDimmed;
+            ctx.globalAlpha = dimmed ? DIM_ALPHA : 1;
 
-            ctx.globalAlpha = linkIsDimmed(link) ? DIM_ALPHA : 0.92;
-            ctx.fillStyle = 'rgba(15, 20, 25, 0.8)';
-            ctx.fillRect(
-              midX - textWidth / 2 - padding,
-              midY - fontSize / 2 - padding,
-              textWidth + padding * 2,
-              fontSize + padding * 2,
-            );
-            ctx.fillStyle = style.color;
-            ctx.fillText(text, midX, midY);
+            // Compute curved geometry. Quadratic Bezier with perpendicular control.
+            const { cx, cy } = controlPoint(source.x, source.y, target.x, target.y, curvature);
+
+            // Trim endpoints so the line doesn't overlap the node circles.
+            const angleSourceToTarget = Math.atan2(target.y - source.y, target.x - source.x);
+            const startX = source.x + Math.cos(angleSourceToTarget) * sourceRadius;
+            const startY = source.y + Math.sin(angleSourceToTarget) * sourceRadius;
+            const endX = target.x - Math.cos(angleSourceToTarget) * (targetRadius + 2);
+            const endY = target.y - Math.sin(angleSourceToTarget) * (targetRadius + 2);
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.quadraticCurveTo(cx, cy, endX, endY);
+            ctx.strokeStyle = style.color;
+            ctx.lineWidth = style.lineWidth / globalScale;
+            if (style.dash.length > 0) {
+              ctx.setLineDash(style.dash.map((d) => d / globalScale));
+            } else {
+              ctx.setLineDash([]);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Arrow head at endX, endY.
+            const tip = pointOnQuadratic(startX, startY, cx, cy, endX, endY, 1);
+            drawArrow(ctx, tip.x, tip.y, tip.angle, style.arrow, style.color);
+
+            // Property box at midpoint (WebVOWL signature). Hide when zoomed out.
+            if (globalScale >= 1.2) {
+              const mid = pointOnQuadratic(startX, startY, cx, cy, endX, endY, 0.5);
+              const fontSize = 10 / globalScale;
+              ctx.font = `${fontSize}px system-ui, sans-serif`;
+              const text = l.relation;
+              const textWidth = ctx.measureText(text).width;
+              const padX = 4 / globalScale;
+              const padY = 2 / globalScale;
+              const boxW = textWidth + padX * 2;
+              const boxH = fontSize + padY * 2;
+
+              ctx.fillStyle = 'rgba(15, 20, 25, 0.92)';
+              ctx.strokeStyle = style.color;
+              ctx.lineWidth = 1 / globalScale;
+              const bx = mid.x - boxW / 2;
+              const by = mid.y - boxH / 2;
+              ctx.beginPath();
+              ctx.rect(bx, by, boxW, boxH);
+              ctx.fill();
+              ctx.stroke();
+
+              ctx.fillStyle = '#e6e6e6';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(text, mid.x, mid.y);
+            }
             ctx.globalAlpha = 1;
+          }}
+          linkPointerAreaPaint={(link, color, ctx) => {
+            const l = link as GraphLink;
+            if (!visibleRelations.has(l.relation)) return;
+            const source = l.source as Positioned;
+            const target = l.target as Positioned;
+            if (
+              typeof source !== 'object' ||
+              typeof target !== 'object' ||
+              source.x === undefined ||
+              source.y === undefined ||
+              target.x === undefined ||
+              target.y === undefined
+            ) {
+              return;
+            }
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(source.x, source.y);
+            ctx.lineTo(target.x, target.y);
+            ctx.stroke();
           }}
         />
       )}
     </div>
   );
-}
-
-/**
- * Apply an alpha multiplier to a 6-digit hex color. Returns an rgba() string.
- * Falls back to the original color when parsing fails.
- */
-function applyAlpha(hex: string, alpha: number): string {
-  if (!hex.startsWith('#') || hex.length !== 7) return hex;
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return hex;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
