@@ -1,4 +1,4 @@
-import type { GraphLink } from '../api/graph';
+import type { GraphLink, GraphNode } from '../api/graph';
 
 // Inverse relations: map secondary side → canonical side. When the backend
 // emits a link in the secondary direction, we flip source/target and rename
@@ -11,10 +11,18 @@ const INVERSE: Record<string, string> = {
   'schema:previousItem': 'schema:nextItem',
 };
 
+function endpointId(end: string | GraphNode): string {
+  return typeof end === 'string' ? end : end.id;
+}
+
 /**
  * Merge inverse relation pairs into a single canonical edge per (source,
  * target, relation) triple. `skos:related` is symmetric so its endpoints are
  * normalized to lexical order.
+ *
+ * Callers should pass links **before** react-force-graph has mutated
+ * source/target into node object references — the function reads id strings
+ * regardless, but dedupe relies on stable string keys.
  *
  * The returned links preserve `GraphLink` shape; `id` is regenerated from the
  * canonical triple so React-force-graph can key them stably after rebuild.
@@ -24,21 +32,21 @@ export function canonicalEdges(links: readonly GraphLink[]): GraphLink[] {
 
   for (const link of links) {
     const canonRel = INVERSE[link.relation];
-    let src = link.source;
-    let dst = link.target;
+    let src = endpointId(link.source);
+    let dst = endpointId(link.target);
     let rel = link.relation;
 
     if (canonRel !== undefined) {
       rel = canonRel;
-      const prevSrc = src;
+      const prev = src;
       src = dst;
-      dst = prevSrc;
+      dst = prev;
     }
 
     if (rel === 'skos:related' && src > dst) {
-      const prevSrc = src;
+      const prev = src;
       src = dst;
-      dst = prevSrc;
+      dst = prev;
     }
 
     const key = `${src}|${rel}|${dst}`;

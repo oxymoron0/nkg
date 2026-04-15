@@ -11,6 +11,8 @@
     "gen:api": "openapi-typescript ../internal/handler/openapi.yaml -o src/api/schema.d.ts"
   },
   "dependencies": {
+    "@types/d3-polygon": "^3.0.2",
+    "d3-polygon": "^3.0.1",
     "openapi-fetch": "^0.17.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
