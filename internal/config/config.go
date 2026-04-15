@@ -15,6 +15,7 @@ type Config struct {
 	JenaEndpoint string `json:"jena_endpoint"`
 	JenaUser     string `json:"jena_id"`
 	JenaPassword string `json:"jena_passwd"`
+	APIPort      int    `json:"api_port"`
 }
 
 // Load reads config.json and notion.token from the project root.
@@ -29,6 +30,10 @@ func Load(projectRoot string) (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	if cfg.APIPort == 0 {
+		cfg.APIPort = 8080
 	}
 
 	if cfg.DatabaseID == "" {
