@@ -16,41 +16,52 @@ export type RelationCategory = {
   relations: string[];
 };
 
+// Palette tuned for a dark background (#0f1419). Tailwind 400/300 shades
+// keep arrows and dashed lines visible without blowing out the contrast.
+const COLOR = {
+  taxonomy: '#60a5fa', // blue-400
+  partWhole: '#4ade80', // green-400
+  dependency: '#f87171', // red-400
+  reference: '#cbd5e1', // slate-300
+  association: '#94a3b8', // slate-400
+  sequence: '#c084fc', // purple-400
+} as const;
+
 export const RELATION_CATEGORIES: RelationCategory[] = [
   {
     id: 'taxonomy',
     label: 'Taxonomy (Is-A)',
-    color: '#3b82f6',
+    color: COLOR.taxonomy,
     relations: ['skos:broader', 'skos:narrower'],
   },
   {
     id: 'part-whole',
     label: 'Part-Whole',
-    color: '#22c55e',
+    color: COLOR.partWhole,
     relations: ['dcterms:hasPart', 'dcterms:isPartOf'],
   },
   {
     id: 'dependency',
     label: 'Dependency',
-    color: '#ef4444',
+    color: COLOR.dependency,
     relations: ['dcterms:requires', 'dcterms:isRequiredBy'],
   },
   {
     id: 'reference',
     label: 'Reference',
-    color: '#9ca3af',
+    color: COLOR.reference,
     relations: ['dcterms:references', 'dcterms:isReferencedBy'],
   },
   {
     id: 'association',
     label: 'Association',
-    color: '#6b7280',
+    color: COLOR.association,
     relations: ['skos:related'],
   },
   {
     id: 'sequence',
     label: 'Sequence',
-    color: '#a855f7',
+    color: COLOR.sequence,
     relations: ['schema:previousItem', 'schema:nextItem'],
   },
 ];
@@ -59,7 +70,7 @@ const STYLES: Record<string, RelationStyle> = {
   'skos:broader': {
     relation: 'skos:broader',
     category: 'taxonomy',
-    color: '#3b82f6',
+    color: COLOR.taxonomy,
     lineWidth: 1.8,
     dash: [],
     arrow: 'filled-triangle',
@@ -67,7 +78,7 @@ const STYLES: Record<string, RelationStyle> = {
   'skos:narrower': {
     relation: 'skos:narrower',
     category: 'taxonomy',
-    color: '#3b82f6',
+    color: COLOR.taxonomy,
     lineWidth: 1.8,
     dash: [],
     arrow: 'filled-triangle',
@@ -75,7 +86,7 @@ const STYLES: Record<string, RelationStyle> = {
   'dcterms:hasPart': {
     relation: 'dcterms:hasPart',
     category: 'part-whole',
-    color: '#22c55e',
+    color: COLOR.partWhole,
     lineWidth: 1.5,
     dash: [],
     arrow: 'diamond',
@@ -83,7 +94,7 @@ const STYLES: Record<string, RelationStyle> = {
   'dcterms:isPartOf': {
     relation: 'dcterms:isPartOf',
     category: 'part-whole',
-    color: '#22c55e',
+    color: COLOR.partWhole,
     lineWidth: 1.5,
     dash: [],
     arrow: 'diamond',
@@ -91,7 +102,7 @@ const STYLES: Record<string, RelationStyle> = {
   'dcterms:requires': {
     relation: 'dcterms:requires',
     category: 'dependency',
-    color: '#ef4444',
+    color: COLOR.dependency,
     lineWidth: 1.5,
     dash: [],
     arrow: 'open-triangle',
@@ -99,7 +110,7 @@ const STYLES: Record<string, RelationStyle> = {
   'dcterms:isRequiredBy': {
     relation: 'dcterms:isRequiredBy',
     category: 'dependency',
-    color: '#ef4444',
+    color: COLOR.dependency,
     lineWidth: 1.5,
     dash: [],
     arrow: 'open-triangle',
@@ -107,31 +118,31 @@ const STYLES: Record<string, RelationStyle> = {
   'dcterms:references': {
     relation: 'dcterms:references',
     category: 'reference',
-    color: '#9ca3af',
-    lineWidth: 1.2,
+    color: COLOR.reference,
+    lineWidth: 1.4,
     dash: [4, 3],
     arrow: 'small-arrow',
   },
   'dcterms:isReferencedBy': {
     relation: 'dcterms:isReferencedBy',
     category: 'reference',
-    color: '#9ca3af',
-    lineWidth: 1.2,
+    color: COLOR.reference,
+    lineWidth: 1.4,
     dash: [4, 3],
     arrow: 'small-arrow',
   },
   'skos:related': {
     relation: 'skos:related',
     category: 'association',
-    color: '#6b7280',
-    lineWidth: 1.2,
+    color: COLOR.association,
+    lineWidth: 1.4,
     dash: [1, 3],
     arrow: 'none',
   },
   'schema:previousItem': {
     relation: 'schema:previousItem',
     category: 'sequence',
-    color: '#a855f7',
+    color: COLOR.sequence,
     lineWidth: 1.5,
     dash: [],
     arrow: 'small-arrow',
@@ -139,7 +150,7 @@ const STYLES: Record<string, RelationStyle> = {
   'schema:nextItem': {
     relation: 'schema:nextItem',
     category: 'sequence',
-    color: '#a855f7',
+    color: COLOR.sequence,
     lineWidth: 1.5,
     dash: [],
     arrow: 'small-arrow',
@@ -149,7 +160,7 @@ const STYLES: Record<string, RelationStyle> = {
 const FALLBACK: RelationStyle = {
   relation: 'unknown',
   category: 'association',
-  color: '#94a3b8',
+  color: COLOR.association,
   lineWidth: 1,
   dash: [2, 2],
   arrow: 'none',
