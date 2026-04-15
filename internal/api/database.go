@@ -156,10 +156,11 @@ func parsePageFromResult(raw json.RawMessage) (model.Page, error) {
 	}
 
 	page := model.Page{
-		ID:             strings.ReplaceAll(result.ID, "-", ""),
-		CreatedTime:    result.CreatedTime,
-		LastEditedTime: result.LastEditedTime,
-		Relations:      make(map[string][]model.Ref),
+		ID:                strings.ReplaceAll(result.ID, "-", ""),
+		CreatedTime:       result.CreatedTime,
+		LastEditedTime:    result.LastEditedTime,
+		Relations:         make(map[string][]model.Ref),
+		RelationTruncated: make(map[string]bool),
 	}
 
 	// Parse title (Name)
@@ -232,6 +233,9 @@ func parsePageFromResult(raw json.RawMessage) (model.Page, error) {
 				refs = append(refs, model.Ref{ID: strings.ReplaceAll(r.ID, "-", "")})
 			}
 			page.Relations[relName] = refs
+			if relProp.HasMore {
+				page.RelationTruncated[relName] = true
+			}
 		}
 	}
 

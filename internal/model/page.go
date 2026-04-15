@@ -8,8 +8,12 @@ type Page struct {
 	CreatedTime    string           `json:"created_time,omitempty"`
 	LastEditedTime string           `json:"last_edited_time,omitempty"`
 	Relations      map[string][]Ref `json:"relations,omitempty"`
-	ExactMatch     string           `json:"skos:exactMatch,omitempty"`
-	CloseMatch     string           `json:"skos:closeMatch,omitempty"`
+	// RelationTruncated marks relation properties whose inline array in the
+	// Notion database query response was truncated (has_more=true). Callers
+	// that need the full list must re-fetch via api.GetRelationPropertyIDs.
+	RelationTruncated map[string]bool `json:"-"`
+	ExactMatch        string          `json:"skos:exactMatch,omitempty"`
+	CloseMatch        string          `json:"skos:closeMatch,omitempty"`
 }
 
 // Ref is a lightweight reference to another page.
