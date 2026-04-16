@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ForceGraph2D from 'react-force-graph-2d';
+import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 import { polygonHull } from 'd3-polygon';
 import type { GraphData, GraphLink, GraphNode } from '../api/graph';
 import type { GraphIndex } from '../lib/graphIndex';
@@ -132,6 +132,7 @@ function controlPoint(
 
 export function GraphView({ data, index, selectedId, visibleRelations, onSelect }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [hoverId, setHoverId] = useState<string | null>(null);
 
@@ -145,6 +146,17 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Limit charge force range so dragging a node only pushes nearby
+  // neighbours, not the entire graph.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg) return;
+    const charge = fg.d3Force('charge') as unknown as
+      | { distanceMax?: (d: number) => void }
+      | undefined;
+    charge?.distanceMax?.(200);
+  }, [data]);
 
   // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
   // single direction, then give each concrete canonical link a stable
@@ -266,6 +278,7 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     <div ref={containerRef} className="graph">
       {size.width > 0 && size.height > 0 && (
         <ForceGraph2D
+          ref={fgRef}
           graphData={canonicalData}
           width={size.width}
           height={size.height}
