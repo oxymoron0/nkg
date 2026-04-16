@@ -174,6 +174,7 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
 
   const homePositions = useRef<Map<string, { x: number; y: number }>>(new Map());
   const selectedIdRef = useRef<string | null>(null);
+  const initialFitDone = useRef(false);
 
   // ── Link distance/strength tables ──────────────────────────────
   //
@@ -449,7 +450,11 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
             const charge = fg.d3Force('charge') as unknown as D3Charge | undefined;
             charge?.strength(-150);
             charge?.distanceMax(250);
-            fg.zoomToFit(400, 60);
+            // zoomToFit only on first layout — never reset user's zoom.
+            if (!initialFitDone.current) {
+              initialFitDone.current = true;
+              fg.zoomToFit(400, 60);
+            }
           }}
           onNodeDragEnd={() => {
             // Update home positions after drag so position-memory
