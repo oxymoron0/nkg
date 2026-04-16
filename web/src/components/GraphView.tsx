@@ -147,30 +147,41 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     return () => ro.disconnect();
   }, []);
 
-  // After the initial force layout converges, pin every node so that
-  // subsequent interactions (click, drag) never displace unrelated nodes.
-  // On drag we temporarily unpin the dragged node + its close neighbours
-  // so local collision avoidance still works.
+  // After the initial force layout converges, pin every node (fx/fy)
+  // so that simulation reheat on drag never displaces unrelated nodes.
+  // Collision avoidance during drag is handled geometrically — no unpinning.
   const settledRef = useRef(false);
-  const LOCAL_UNPIN_RADIUS = 120; // world units — roughly 1 edge length
 
   const pinAllNodes = () => {
     for (const node of data.nodes) {
-      const n = node as Positioned;
-      if (n.x !== undefined) (n as { fx?: number }).fx = n.x;
-      if (n.y !== undefined) (n as { fy?: number }).fy = n.y;
+      const n = node as Positioned & { fx?: number; fy?: number };
+      if (n.x !== undefined) n.fx = n.x;
+      if (n.y !== undefined) n.fy = n.y;
     }
   };
 
-  const unpinNear = (center: Positioned) => {
-    if (center.x === undefined || center.y === undefined) return;
-    for (const node of data.nodes) {
-      const n = node as Positioned & { fx?: number; fy?: number };
-      if (n.x === undefined || n.y === undefined) continue;
-      const dist = Math.hypot(n.x - center.x!, n.y - center.y!);
-      if (dist < LOCAL_UNPIN_RADIUS) {
-        n.fx = undefined;
-        n.fy = undefined;
+  // Geometric collision resolution: push overlapping nodes just enough
+  // to clear the overlap. Called every drag frame, so the push is dynamic
+  // and proportional — nodes stop moving the moment the dragged node
+  // moves away.
+  const resolveOverlaps = (dragged: Positioned) => {
+    if (dragged.x === undefined || dragged.y === undefined) return;
+    const rA = nodeRadius(dragged, index);
+    for (const other of data.nodes) {
+      const o = other as Positioned & { fx?: number; fy?: number };
+      if (o.id === dragged.id || o.x === undefined || o.y === undefined) continue;
+      const dx = o.x - dragged.x;
+      const dy = o.y - dragged.y;
+      const dist = Math.hypot(dx, dy);
+      const minDist = rA + nodeRadius(o, index) + 4;
+      if (dist < minDist && dist > 0) {
+        const push = (minDist - dist) * 0.5;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        o.x += nx * push;
+        o.y += ny * push;
+        o.fx = o.x;
+        o.fy = o.y;
       }
     }
   };
@@ -322,14 +333,12 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
             }
           }}
           onNodeDrag={(node) => {
-            const n = node as Positioned;
-            unpinNear(n);
+            resolveOverlaps(node as Positioned);
           }}
           onNodeDragEnd={(node) => {
             const n = node as Positioned & { fx?: number; fy?: number };
             n.fx = n.x;
             n.fy = n.y;
-            pinAllNodes();
           }}
           onNodeClick={(node) => onSelect((node as GraphNode).id)}
           onBackgroundClick={() => onSelect(null)}
