@@ -176,6 +176,9 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
   const homePositions = useRef<Map<string, { x: number; y: number }>>(new Map());
   const selectedIdRef = useRef<string | null>(null);
   const initialFitDone = useRef(false);
+  // IDs of the selected node's direct neighbours — exempt from position
+  // memory so directional force can move them freely to their sectors.
+  const exemptFromMemory = useRef<Set<string>>(new Set());
 
   // ── Link distance/strength tables ──────────────────────────────
   //
@@ -264,7 +267,11 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
 
     function positionMemory(alpha: number) {
       for (const n of memNodes) {
-        const home = homePositions.current.get(String(n.id ?? ''));
+        const nid = String(n.id ?? '');
+        // Exempt selected node's neighbours so directional force
+        // can move them to their sectors without resistance.
+        if (exemptFromMemory.current.has(nid)) continue;
+        const home = homePositions.current.get(nid);
         if (!home || n.x === undefined || n.y === undefined) continue;
         n.vx! -= (n.x - home.x) * MEM_STRENGTH * alpha;
         n.vy! -= (n.y - home.y) * MEM_STRENGTH * alpha;
@@ -287,13 +294,20 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     link?.distance(linkDistFn);
     link?.strength(linkStrFn);
 
+    // Compute exempt set: direct neighbours of the selected node.
     if (selectedId !== null) {
-      // Reheat so the simulation finds the new equilibrium with
-      // focused distances on the selected node's edges.
+      const neighbors = new Set<string>();
+      for (const lnk of canonicalData.links) {
+        const srcId = typeof lnk.source === 'string' ? lnk.source : lnk.source.id;
+        const tgtId = typeof lnk.target === 'string' ? lnk.target : lnk.target.id;
+        if (srcId === selectedId) neighbors.add(tgtId);
+        else if (tgtId === selectedId) neighbors.add(srcId);
+      }
+      exemptFromMemory.current = neighbors;
       fg.d3ReheatSimulation();
     } else {
-      // Deselect: save current positions as new home (requirement #3:
-      // keep the arrangement, don't snap back).
+      exemptFromMemory.current = new Set();
+      // Deselect: save current positions as new home.
       for (const node of data.nodes) {
         const n = node as Positioned;
         if (n.x !== undefined && n.y !== undefined) {
