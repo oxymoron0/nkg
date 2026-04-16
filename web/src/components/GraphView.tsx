@@ -163,14 +163,14 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
 
     const charge = fg.d3Force('charge') as unknown as D3Charge | undefined;
     const link = fg.d3Force('link') as unknown as D3Link | undefined;
-    charge?.strength(-700);
+    charge?.strength(-1200);
     link?.distance(130);
 
     // Gravity: pull each node toward (0,0) proportional to its distance.
     // This counteracts charge's outward push and prevents drift on reheat.
     type GravityNode = { x?: number; y?: number; vx?: number; vy?: number };
     let gravityNodes: GravityNode[] = [];
-    const GRAVITY_STRENGTH = 0.05;
+    const GRAVITY_STRENGTH = 0.02;
 
     function gravity(alpha: number) {
       for (const n of gravityNodes) {
