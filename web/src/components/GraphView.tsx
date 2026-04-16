@@ -147,18 +147,22 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     return () => ro.disconnect();
   }, []);
 
-  // After the initial layout converges, neuter the forces that cause
-  // global displacement on drag:
-  //   - center force removed entirely (prevents outward expansion)
-  //   - charge weakened + range-limited (nearby repulsion only)
-  // Connected nodes still respond naturally via link force.
+  // Two-phase force tuning:
+  //   Phase 1 (layout): strong charge (-700) + long link distance (130)
+  //     → nodes spread out properly, no overlaps.
+  //   Phase 2 (interaction, after onEngineStop): weaken charge (-120)
+  //     + limit range (distanceMax 250) → drag affects only local
+  //     neighbourhood, far nodes stay put.
+  type D3Charge = { strength: (v: number) => void; distanceMax: (v: number) => void };
+  type D3Link = { distance: (v: number | ((l: unknown) => number)) => void };
+
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
-    const charge = fg.d3Force('charge') as unknown as
-      | { distanceMax?: (d: number) => void; strength?: (s: number) => void }
-      | undefined;
-    charge?.distanceMax?.(150);
+    const charge = fg.d3Force('charge') as unknown as D3Charge | undefined;
+    const link = fg.d3Force('link') as unknown as D3Link | undefined;
+    charge?.strength(-700);
+    link?.distance(130);
   }, [data]);
 
   // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
@@ -289,16 +293,22 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
           nodeId="id"
           nodeLabel={(n) => (n as GraphNode).label}
           linkCurvature={(link) => linkCurvatureFor(link as GraphLink)}
-          cooldownTicks={120}
+          cooldownTicks={200}
           onRenderFramePre={(ctx, scale) => drawHullOverlay(ctx, scale)}
+          nodeVal={(node) => nodeRadius(node as GraphNode, index)}
+          d3AlphaDecay={0.02}
+          d3VelocityDecay={0.3}
           onEngineStop={() => {
-            // Remove center force after layout — this is the main cause of
-            // global outward drift on simulation reheat during drag.
             const fg = fgRef.current;
-            if (fg) fg.d3Force('center', null);
+            if (!fg) return;
+            // Phase 2: weaken charge + limit range for stable interaction
+            const charge = fg.d3Force('charge') as unknown as
+              | { strength: (v: number) => void; distanceMax: (v: number) => void }
+              | undefined;
+            charge?.strength(-120);
+            charge?.distanceMax(250);
+            fg.zoomToFit(400, 60);
           }}
-          d3AlphaDecay={0.08}
-          d3VelocityDecay={0.5}
           onNodeClick={(node) => onSelect((node as GraphNode).id)}
           onBackgroundClick={() => onSelect(null)}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
