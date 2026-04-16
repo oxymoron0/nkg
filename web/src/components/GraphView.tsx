@@ -50,15 +50,17 @@ function drawArrow(
   angle: number,
   kind: ArrowKind,
   color: string,
+  globalScale: number,
 ) {
   if (kind === 'none') return;
-  const size = 7;
+  // Scale inversely so the arrow maintains ~8 screen pixels at any zoom.
+  const size = 8 / globalScale;
   ctx.save();
   ctx.translate(tipX, tipY);
   ctx.rotate(angle);
   ctx.fillStyle = color;
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1.5 / globalScale;
 
   switch (kind) {
     case 'filled-triangle':
@@ -372,7 +374,7 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
 
             // Arrow head at endX, endY.
             const tip = pointOnQuadratic(startX, startY, cx, cy, endX, endY, 1);
-            drawArrow(ctx, tip.x, tip.y, tip.angle, style.arrow, style.color);
+            drawArrow(ctx, tip.x, tip.y, tip.angle, style.arrow, style.color, globalScale);
 
             // Property box at midpoint (WebVOWL signature). Hide when zoomed out.
             if (globalScale >= 1.2) {
