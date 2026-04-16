@@ -147,53 +147,18 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     return () => ro.disconnect();
   }, []);
 
-  // After the initial force layout converges, pin every node (fx/fy)
-  // so that simulation reheat on drag never displaces unrelated nodes.
-  // Collision avoidance during drag is handled geometrically — no unpinning.
-  const settledRef = useRef(false);
-
-  const pinAllNodes = () => {
-    for (const node of data.nodes) {
-      const n = node as Positioned & { fx?: number; fy?: number };
-      if (n.x !== undefined) n.fx = n.x;
-      if (n.y !== undefined) n.fy = n.y;
-    }
-  };
-
-  // Geometric collision resolution: push overlapping nodes just enough
-  // to clear the overlap. Called every drag frame, so the push is dynamic
-  // and proportional — nodes stop moving the moment the dragged node
-  // moves away.
-  const resolveOverlaps = (dragged: Positioned) => {
-    if (dragged.x === undefined || dragged.y === undefined) return;
-    const rA = nodeRadius(dragged, index);
-    for (const other of data.nodes) {
-      const o = other as Positioned & { fx?: number; fy?: number };
-      if (o.id === dragged.id || o.x === undefined || o.y === undefined) continue;
-      const dx = o.x - dragged.x;
-      const dy = o.y - dragged.y;
-      const dist = Math.hypot(dx, dy);
-      const minDist = rA + nodeRadius(o, index) + 4;
-      if (dist < minDist && dist > 0) {
-        const push = (minDist - dist) * 0.5;
-        const nx = dx / dist;
-        const ny = dy / dist;
-        o.x += nx * push;
-        o.y += ny * push;
-        o.fx = o.x;
-        o.fy = o.y;
-      }
-    }
-  };
-
+  // After the initial layout converges, neuter the forces that cause
+  // global displacement on drag:
+  //   - center force removed entirely (prevents outward expansion)
+  //   - charge weakened + range-limited (nearby repulsion only)
+  // Connected nodes still respond naturally via link force.
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
-    // Limit charge range as a secondary safety net.
     const charge = fg.d3Force('charge') as unknown as
-      | { distanceMax?: (d: number) => void }
+      | { distanceMax?: (d: number) => void; strength?: (s: number) => void }
       | undefined;
-    charge?.distanceMax?.(200);
+    charge?.distanceMax?.(150);
   }, [data]);
 
   // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
@@ -327,19 +292,13 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
           cooldownTicks={120}
           onRenderFramePre={(ctx, scale) => drawHullOverlay(ctx, scale)}
           onEngineStop={() => {
-            if (!settledRef.current) {
-              settledRef.current = true;
-              pinAllNodes();
-            }
+            // Remove center force after layout — this is the main cause of
+            // global outward drift on simulation reheat during drag.
+            const fg = fgRef.current;
+            if (fg) fg.d3Force('center', null);
           }}
-          onNodeDrag={(node) => {
-            resolveOverlaps(node as Positioned);
-          }}
-          onNodeDragEnd={(node) => {
-            const n = node as Positioned & { fx?: number; fy?: number };
-            n.fx = n.x;
-            n.fy = n.y;
-          }}
+          d3AlphaDecay={0.08}
+          d3VelocityDecay={0.5}
           onNodeClick={(node) => onSelect((node as GraphNode).id)}
           onBackgroundClick={() => onSelect(null)}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
