@@ -294,16 +294,26 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     link?.distance(linkDistFn);
     link?.strength(linkStrFn);
 
-    // Compute exempt set: direct neighbours of the selected node.
+    // Compute exempt set: 1st-degree + 2nd-degree neighbours.
+    // 2nd-degree also needs exemption so the secondary bias force in
+    // directionalForce can move them to the outer side of their sector.
     if (selectedId !== null) {
-      const neighbors = new Set<string>();
+      const primary = new Set<string>();
       for (const lnk of canonicalData.links) {
         const srcId = typeof lnk.source === 'string' ? lnk.source : lnk.source.id;
         const tgtId = typeof lnk.target === 'string' ? lnk.target : lnk.target.id;
-        if (srcId === selectedId) neighbors.add(tgtId);
-        else if (tgtId === selectedId) neighbors.add(srcId);
+        if (srcId === selectedId) primary.add(tgtId);
+        else if (tgtId === selectedId) primary.add(srcId);
       }
-      exemptFromMemory.current = neighbors;
+      // 2nd-degree: nodes connected to primary but not selected/primary.
+      const exempt = new Set(primary);
+      for (const lnk of canonicalData.links) {
+        const srcId = typeof lnk.source === 'string' ? lnk.source : lnk.source.id;
+        const tgtId = typeof lnk.target === 'string' ? lnk.target : lnk.target.id;
+        if (primary.has(srcId) && !primary.has(tgtId) && tgtId !== selectedId) exempt.add(tgtId);
+        if (primary.has(tgtId) && !primary.has(srcId) && srcId !== selectedId) exempt.add(srcId);
+      }
+      exemptFromMemory.current = exempt;
       fg.d3ReheatSimulation();
     } else {
       exemptFromMemory.current = new Set();
