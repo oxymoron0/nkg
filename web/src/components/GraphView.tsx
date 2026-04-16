@@ -147,11 +147,38 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     return () => ro.disconnect();
   }, []);
 
-  // Limit charge force range so dragging a node only pushes nearby
-  // neighbours, not the entire graph.
+  // After the initial force layout converges, pin every node so that
+  // subsequent interactions (click, drag) never displace unrelated nodes.
+  // On drag we temporarily unpin the dragged node + its close neighbours
+  // so local collision avoidance still works.
+  const settledRef = useRef(false);
+  const LOCAL_UNPIN_RADIUS = 120; // world units — roughly 1 edge length
+
+  const pinAllNodes = () => {
+    for (const node of data.nodes) {
+      const n = node as Positioned;
+      if (n.x !== undefined) (n as { fx?: number }).fx = n.x;
+      if (n.y !== undefined) (n as { fy?: number }).fy = n.y;
+    }
+  };
+
+  const unpinNear = (center: Positioned) => {
+    if (center.x === undefined || center.y === undefined) return;
+    for (const node of data.nodes) {
+      const n = node as Positioned & { fx?: number; fy?: number };
+      if (n.x === undefined || n.y === undefined) continue;
+      const dist = Math.hypot(n.x - center.x!, n.y - center.y!);
+      if (dist < LOCAL_UNPIN_RADIUS) {
+        n.fx = undefined;
+        n.fy = undefined;
+      }
+    }
+  };
+
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
+    // Limit charge range as a secondary safety net.
     const charge = fg.d3Force('charge') as unknown as
       | { distanceMax?: (d: number) => void }
       | undefined;
@@ -288,6 +315,22 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
           linkCurvature={(link) => linkCurvatureFor(link as GraphLink)}
           cooldownTicks={120}
           onRenderFramePre={(ctx, scale) => drawHullOverlay(ctx, scale)}
+          onEngineStop={() => {
+            if (!settledRef.current) {
+              settledRef.current = true;
+              pinAllNodes();
+            }
+          }}
+          onNodeDrag={(node) => {
+            const n = node as Positioned;
+            unpinNear(n);
+          }}
+          onNodeDragEnd={(node) => {
+            const n = node as Positioned & { fx?: number; fy?: number };
+            n.fx = n.x;
+            n.fy = n.y;
+            pinAllNodes();
+          }}
           onNodeClick={(node) => onSelect((node as GraphNode).id)}
           onBackgroundClick={() => onSelect(null)}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
