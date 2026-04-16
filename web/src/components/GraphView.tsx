@@ -5,6 +5,7 @@ import type { GraphData, GraphLink, GraphNode } from '../api/graph';
 import type { GraphIndex } from '../lib/graphIndex';
 import { CONTAINMENT_RELATIONS, bfsDescendants } from '../lib/graphIndex';
 import { canonicalEdges } from '../lib/canonicalEdges';
+import { createDirectionalForce } from '../lib/directionalForce';
 import { relationStyle, type ArrowKind } from '../lib/relationStyle';
 // We keep the graph topology stable even when the user toggles relation
 // filters, so react-force-graph does not re-initialise the simulation and
@@ -466,8 +467,32 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
               }
             }
           }}
-          onNodeClick={(node) => onSelect((node as GraphNode).id)}
-          onBackgroundClick={() => onSelect(null)}
+          onNodeClick={(node) => {
+            const n = node as GraphNode;
+            onSelect(n.id);
+            const fg = fgRef.current;
+            if (fg) {
+              fg.d3Force(
+                'directional',
+                createDirectionalForce(n.id, canonicalData.links) as never,
+              );
+              fg.d3ReheatSimulation();
+            }
+          }}
+          onBackgroundClick={() => {
+            onSelect(null);
+            const fg = fgRef.current;
+            if (fg) {
+              fg.d3Force('directional', null);
+              // Don't reheat — keep arrangement, update homes.
+              for (const n of data.nodes) {
+                const p = n as Positioned;
+                if (p.x !== undefined && p.y !== undefined) {
+                  homePositions.current.set(p.id, { x: p.x, y: p.y });
+                }
+              }
+            }
+          }}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
           nodeCanvasObject={(node, ctx, globalScale) => {
             const n = node as Positioned;
