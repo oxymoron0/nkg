@@ -118,9 +118,10 @@ export function createDirectionalForce(
   let forceNodes: ForceNode[] = [];
   let nodeMap = new Map<string, ForceNode>();
 
-  // Pre-compute which sector each neighbour belongs to.
-  const neighbors: NeighborInfo[] = [];
-  const seen = new Set<string>();
+  // ── Phase 1: identify 1st-degree neighbours and their sectors ──
+
+  const primaryNeighbors: NeighborInfo[] = [];
+  const primarySet = new Set<string>(); // IDs of 1st-degree neighbours
 
   for (const link of links) {
     const srcId = typeof link.source === 'string' ? link.source : link.source.id;
@@ -138,15 +139,14 @@ export function createDirectionalForce(
     const sector = isSource ? dirConfig.asSource : dirConfig.asTarget;
     if (sector === 'outer') continue;
 
-    // If same node appears in multiple sectors, first (closest) wins.
-    if (seen.has(neighborId)) continue;
-    seen.add(neighborId);
-    neighbors.push({ nodeId: neighborId, sector });
+    if (primarySet.has(neighborId)) continue;
+    primarySet.add(neighborId);
+    primaryNeighbors.push({ nodeId: neighborId, sector });
   }
 
-  // Group by sector and assign indices.
+  // Group by sector.
   const sectorGroups = new Map<Exclude<Sector, 'outer'>, string[]>();
-  for (const n of neighbors) {
+  for (const n of primaryNeighbors) {
     if (n.sector === 'outer') continue;
     const s = n.sector as Exclude<Sector, 'outer'>;
     let group = sectorGroups.get(s);
@@ -154,23 +154,97 @@ export function createDirectionalForce(
     group.push(n.nodeId);
   }
 
-  // Build a lookup: nodeId → { sector, index, total }
-  const targetLookup = new Map<string, {
+  // ── Barycenter ordering ──────────────────────────────────────
+  //
+  // Sort nodes within each sector by the average position of their
+  // connections (excluding the selected node). For UP/DOWN (horizontal
+  // rows), sort by average X. For LEFT/RIGHT (vertical columns), sort
+  // by average Y. This minimises edge crossings within each row/column.
+  //
+  // We build a per-node adjacency position average from the current
+  // simulation state. The nodeMap is populated in force.initialize(),
+  // but at creation time it may be empty — so we build a temporary
+  // position map from forceNodes if available, otherwise fall back to
+  // insertion order (first render).
+
+  const barycenter = (nodeId: string, axis: 'x' | 'y'): number => {
+    let sum = 0;
+    let count = 0;
+    for (const link of links) {
+      const srcId = typeof link.source === 'string' ? link.source : link.source.id;
+      const tgtId = typeof link.target === 'string' ? link.target : link.target.id;
+      let otherId: string | null = null;
+      if (srcId === nodeId) otherId = tgtId;
+      else if (tgtId === nodeId) otherId = srcId;
+      if (!otherId || otherId === selectedId) continue;
+      const other = nodeMap.get(otherId);
+      if (!other) continue;
+      const val = axis === 'x' ? other.x : other.y;
+      if (val !== undefined) { sum += val; count++; }
+    }
+    return count > 0 ? sum / count : 0;
+  };
+
+  for (const [sector, ids] of sectorGroups) {
+    const axis: 'x' | 'y' = (sector === 'up' || sector === 'down') ? 'x' : 'y';
+    ids.sort((a, b) => barycenter(a, axis) - barycenter(b, axis));
+  }
+
+  // Assign row/column indices after sorting.
+  const primaryLookup = new Map<string, {
     sector: Exclude<Sector, 'outer'>;
     index: number;
     total: number;
   }>();
   for (const [sector, ids] of sectorGroups) {
     for (let i = 0; i < ids.length; i++) {
-      targetLookup.set(ids[i], { sector, index: i, total: ids.length });
+      primaryLookup.set(ids[i], { sector, index: i, total: ids.length });
     }
   }
+
+  // ── Phase 2: identify 2nd-degree neighbours ──
+  //
+  // For each 1st-degree neighbour B in sector S, find B's own neighbours
+  // (C) that are NOT the selected node and NOT themselves 1st-degree.
+  // These 2nd-degree nodes get a weak bias toward the OUTER side of S,
+  // preventing their edges from crossing through the selected node.
+
+  // Map: secondaryId → sector of its primary parent (for bias direction)
+  const secondaryBias = new Map<string, Exclude<Sector, 'outer'>>();
+  const SECONDARY_STRENGTH = 0.15; // weaker than primary (0.5)
+  const SECONDARY_EXTRA_GAP = 80;  // additional distance beyond primary rows
+
+  for (const link of links) {
+    const srcId = typeof link.source === 'string' ? link.source : link.source.id;
+    const tgtId = typeof link.target === 'string' ? link.target : link.target.id;
+
+    // Find links where one end is a primary neighbour and the other is not selected/primary.
+    let primaryId: string | null = null;
+    let secondaryId: string | null = null;
+
+    if (primarySet.has(srcId) && !primarySet.has(tgtId) && tgtId !== selectedId) {
+      primaryId = srcId; secondaryId = tgtId;
+    } else if (primarySet.has(tgtId) && !primarySet.has(srcId) && srcId !== selectedId) {
+      primaryId = tgtId; secondaryId = srcId;
+    }
+
+    if (!primaryId || !secondaryId) continue;
+    if (secondaryBias.has(secondaryId)) continue; // first primary parent wins
+
+    const parentInfo = primaryLookup.get(primaryId);
+    if (parentInfo) {
+      secondaryBias.set(secondaryId, parentInfo.sector);
+    }
+  }
+
+  // ── Force function ──
 
   function force(alpha: number) {
     const selected = nodeMap.get(selectedId);
     if (!selected || selected.x === undefined || selected.y === undefined) return;
 
-    for (const [nodeId, info] of targetLookup) {
+    // 1st-degree: strong pull to grid positions.
+    for (const [nodeId, info] of primaryLookup) {
       const node = nodeMap.get(nodeId);
       if (!node || node.x === undefined || node.y === undefined) continue;
 
@@ -181,6 +255,32 @@ export function createDirectionalForce(
 
       node.vx! += (target.x - node.x) * strength * alpha;
       node.vy! += (target.y - node.y) * strength * alpha;
+    }
+
+    // 2nd-degree: weak bias toward the outer side of their parent's sector.
+    // This prevents edges from crossing through the selected node.
+    for (const [nodeId, sector] of secondaryBias) {
+      const node = nodeMap.get(nodeId);
+      if (!node || node.x === undefined || node.y === undefined) continue;
+
+      const cfg = SECTOR_CONFIGS[sector];
+      // Push further out in the sector's primary direction.
+      const totalRows = Math.ceil(
+        (sectorGroups.get(sector)?.length ?? 1) / cfg.maxPerRow,
+      );
+      const extraDist = cfg.minGap + totalRows * cfg.rowSpacing + SECONDARY_EXTRA_GAP;
+
+      let targetX = selected.x;
+      let targetY = selected.y;
+      switch (sector) {
+        case 'up':    targetY = selected.y - extraDist; break;
+        case 'down':  targetY = selected.y + extraDist; break;
+        case 'left':  targetX = selected.x - extraDist; break;
+        case 'right': targetX = selected.x + extraDist; break;
+      }
+
+      node.vx! += (targetX - node.x) * SECONDARY_STRENGTH * alpha;
+      node.vy! += (targetY - node.y) * SECONDARY_STRENGTH * alpha;
     }
   }
 
