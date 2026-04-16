@@ -147,22 +147,42 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     return () => ro.disconnect();
   }, []);
 
-  // Two-phase force tuning:
-  //   Phase 1 (layout): strong charge (-700) + long link distance (130)
-  //     → nodes spread out properly, no overlaps.
-  //   Phase 2 (interaction, after onEngineStop): weaken charge (-120)
-  //     + limit range (distanceMax 250) → drag affects only local
-  //     neighbourhood, far nodes stay put.
+  // ── Force tuning ────────────────────────────────────────────────
+  // Phase 1 (layout): strong charge + long link → spread nodes out.
+  // A custom gravity force pulls each node individually toward (0,0),
+  // providing true centripetal force (d3's forceCenter only shifts the
+  // center of mass, it does NOT pull individual nodes inward).
+  // Phase 2 (after engine stop): weaken charge + limit its range so
+  // dragging a node no longer displaces distant nodes.
   type D3Charge = { strength: (v: number) => void; distanceMax: (v: number) => void };
   type D3Link = { distance: (v: number | ((l: unknown) => number)) => void };
 
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
+
     const charge = fg.d3Force('charge') as unknown as D3Charge | undefined;
     const link = fg.d3Force('link') as unknown as D3Link | undefined;
     charge?.strength(-700);
     link?.distance(130);
+
+    // Gravity: pull each node toward (0,0) proportional to its distance.
+    // This counteracts charge's outward push and prevents drift on reheat.
+    type GravityNode = { x?: number; y?: number; vx?: number; vy?: number };
+    let gravityNodes: GravityNode[] = [];
+    const GRAVITY_STRENGTH = 0.05;
+
+    function gravity(alpha: number) {
+      for (const n of gravityNodes) {
+        if (n.x !== undefined && n.vx !== undefined) n.vx -= n.x * GRAVITY_STRENGTH * alpha;
+        if (n.y !== undefined && n.vy !== undefined) n.vy -= n.y * GRAVITY_STRENGTH * alpha;
+      }
+    }
+    gravity.initialize = (nodes: GravityNode[]) => {
+      gravityNodes = nodes;
+    };
+
+    fg.d3Force('gravity', gravity as never);
   }, [data]);
 
   // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
