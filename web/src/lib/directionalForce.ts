@@ -28,13 +28,13 @@ type Direction = {
 };
 
 // UP = 상위 (parents, wholes I belong to)
-const UP: Direction = { angle: -Math.PI / 2, distance: 35 };
+const UP: Direction = { angle: -Math.PI / 2, distance: 60 };
 // DOWN = 하위 (children, parts I contain)
-const DOWN: Direction = { angle: Math.PI / 2, distance: 35 };
+const DOWN: Direction = { angle: Math.PI / 2, distance: 60 };
 // LEFT = 선행 (dependencies I need, previous step)
-const LEFT: Direction = { angle: Math.PI, distance: 80 };
+const LEFT: Direction = { angle: Math.PI, distance: 140 };
 // RIGHT = 후행 (dependents that need me, next step)
-const RIGHT: Direction = { angle: 0, distance: 80 };
+const RIGHT: Direction = { angle: 0, distance: 140 };
 // OUTER = 느슨한 연관 (no angular preference, distance only)
 const OUTER: Direction | null = null;
 
