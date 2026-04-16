@@ -147,15 +147,44 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     return () => ro.disconnect();
   }, []);
 
-  // ── Force tuning ────────────────────────────────────────────────
-  // Phase 1 (layout): strong charge + long link → spread nodes out.
-  // A custom gravity force pulls each node individually toward (0,0),
-  // providing true centripetal force (d3's forceCenter only shifts the
-  // center of mass, it does NOT pull individual nodes inward).
-  // Phase 2 (after engine stop): weaken charge + limit its range so
-  // dragging a node no longer displaces distant nodes.
-  type D3Charge = { strength: (v: number) => void; distanceMax: (v: number) => void };
-  type D3Link = { distance: (v: number | ((l: unknown) => number)) => void };
+  // ── Force model ─────────────────────────────────────────────────
+  //
+  // Phase 1 (initial layout):
+  //   charge -800            strong repulsion → no overlaps
+  //   link   per-type        taxonomy 50/0.8, dependency 100/0.4,
+  //                          association 200/0.1 → natural clusters
+  //   center default         keeps center of mass on screen
+  //   (no position memory yet — let simulation find good positions)
+  //
+  // Phase 2 (after onEngineStop):
+  //   charge -150 + distMax 250   weak, short-range repulsion only
+  //   position memory 0.08        each node pulled to its settled
+  //                                position, NOT absolute (0,0)
+  //   → drag moves the dragged node + connected neighbours respond
+  //     via link force; far nodes stay at their home positions.
+
+  type D3Charge = {
+    strength: (v: number) => void;
+    distanceMax: (v: number) => void;
+  };
+  type D3Link = {
+    distance: (v: number | ((l: unknown) => number)) => void;
+    strength: (v: number | ((l: unknown) => number)) => void;
+  };
+
+  const homePositions = useRef<Map<string, { x: number; y: number }>>(new Map());
+
+  // Link distance/strength by relation type — this is what creates
+  // visible clusters in the force layout.
+  const LINK_CONFIG: Record<string, { dist: number; str: number }> = {
+    'skos:broader': { dist: 50, str: 0.8 },
+    'dcterms:hasPart': { dist: 50, str: 0.8 },
+    'dcterms:requires': { dist: 100, str: 0.4 },
+    'schema:nextItem': { dist: 80, str: 0.5 },
+    'skos:related': { dist: 200, str: 0.1 },
+    'dcterms:references': { dist: 200, str: 0.1 },
+  };
+  const DEFAULT_LINK = { dist: 130, str: 0.3 };
 
   useEffect(() => {
     const fg = fgRef.current;
@@ -163,26 +192,40 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
 
     const charge = fg.d3Force('charge') as unknown as D3Charge | undefined;
     const link = fg.d3Force('link') as unknown as D3Link | undefined;
-    charge?.strength(-1200);
-    link?.distance(130);
 
-    // Gravity: pull each node toward (0,0) proportional to its distance.
-    // This counteracts charge's outward push and prevents drift on reheat.
-    type GravityNode = { x?: number; y?: number; vx?: number; vy?: number };
-    let gravityNodes: GravityNode[] = [];
-    const GRAVITY_STRENGTH = 0.02;
+    charge?.strength(-800);
 
-    function gravity(alpha: number) {
-      for (const n of gravityNodes) {
-        if (n.x !== undefined && n.vx !== undefined) n.vx -= n.x * GRAVITY_STRENGTH * alpha;
-        if (n.y !== undefined && n.vy !== undefined) n.vy -= n.y * GRAVITY_STRENGTH * alpha;
+    link?.distance((l: unknown) => {
+      const rel = (l as GraphLink).relation;
+      return (LINK_CONFIG[rel] ?? DEFAULT_LINK).dist;
+    });
+    link?.strength((l: unknown) => {
+      const rel = (l as GraphLink).relation;
+      return (LINK_CONFIG[rel] ?? DEFAULT_LINK).str;
+    });
+
+    // Remove old gravity force if present from a previous render.
+    fg.d3Force('gravity', null);
+
+    // Register position-memory force (inactive until homePositions
+    // are populated in onEngineStop).
+    type MemNode = { id?: string; x?: number; y?: number; vx?: number; vy?: number };
+    let memNodes: MemNode[] = [];
+    const MEM_STRENGTH = 0.08;
+
+    function positionMemory(alpha: number) {
+      for (const n of memNodes) {
+        const home = homePositions.current.get(String(n.id ?? ''));
+        if (!home || n.x === undefined || n.y === undefined) continue;
+        n.vx! -= (n.x - home.x) * MEM_STRENGTH * alpha;
+        n.vy! -= (n.y - home.y) * MEM_STRENGTH * alpha;
       }
     }
-    gravity.initialize = (nodes: GravityNode[]) => {
-      gravityNodes = nodes;
+    positionMemory.initialize = (nodes: MemNode[]) => {
+      memNodes = nodes;
     };
 
-    fg.d3Force('gravity', gravity as never);
+    fg.d3Force('positionMemory', positionMemory as never);
   }, [data]);
 
   // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
@@ -321,13 +364,29 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
           onEngineStop={() => {
             const fg = fgRef.current;
             if (!fg) return;
-            // Phase 2: weaken charge + limit range for stable interaction
-            const charge = fg.d3Force('charge') as unknown as
-              | { strength: (v: number) => void; distanceMax: (v: number) => void }
-              | undefined;
-            charge?.strength(-120);
+            // Snapshot home positions for position-memory force.
+            homePositions.current.clear();
+            for (const node of data.nodes) {
+              const n = node as Positioned;
+              if (n.x !== undefined && n.y !== undefined) {
+                homePositions.current.set(n.id, { x: n.x, y: n.y });
+              }
+            }
+            // Phase 2: weaken charge + limit range.
+            const charge = fg.d3Force('charge') as unknown as D3Charge | undefined;
+            charge?.strength(-150);
             charge?.distanceMax(250);
             fg.zoomToFit(400, 60);
+          }}
+          onNodeDragEnd={() => {
+            // Update home positions after drag so position-memory
+            // doesn't pull nodes back to pre-drag positions.
+            for (const n of data.nodes) {
+              const p = n as Positioned;
+              if (p.x !== undefined && p.y !== undefined) {
+                homePositions.current.set(p.id, { x: p.x, y: p.y });
+              }
+            }
           }}
           onNodeClick={(node) => onSelect((node as GraphNode).id)}
           onBackgroundClick={() => onSelect(null)}
