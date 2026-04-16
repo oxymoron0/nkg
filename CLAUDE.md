@@ -82,15 +82,50 @@ Dockerfile                   # Go API 서버 (golang:1.25-alpine → distroless)
 
 WebVOWL 에서 영감을 받은 지식 그래프 시각화. `react-force-graph-2d` 위에 canvas 커스텀 렌더링.
 
-### Force Model (안정 기준: `fa5292a`)
+### Force Model
+
+Two-phase force 시뮬레이션 + 선택 시 directional 배치.
+
+**Phase 1 — 초기 레이아웃**:
 
 | 힘 | 역할 | 파라미터 |
 |---|---|---|
-| charge | 척력 (겹침 방지) | Phase 1: -800, Phase 2: -150 + distMax 250 |
+| charge | 척력 (겹침 방지) | -800 |
 | link | 스프링 (관계별 차등) | taxonomy: dist 50/str 0.8, related: dist 200/str 0.1 |
 | center | 무게중심 유지 | 기본값 |
-| positionMemory | 각 노드를 수렴 위치로 복원 | str 0.08 (gravity 대체) |
 | collision | nodeVal 기반 | radius (nodeRadius 함수) |
+
+**Phase 2 — 상호작용 (onEngineStop 이후)**:
+
+| 변경 | 값 | 이유 |
+|------|-----|------|
+| charge | -800 → -150 + distMax 250 | 드래그 시 먼 노드 반발 차단 |
+| positionMemory | str 0.08 | 각 노드를 수렴 위치(home)로 복원. gravity(절대 (0,0) 당김)가 아닌 개별 home 방향 복원 |
+| zoomToFit | 초기 1회만 | 이후 줌 레벨 유지 |
+
+**노드 선택 시 — Directional 배치**:
+
+| 기능 | 설명 |
+|------|------|
+| focused link force | 선택 노드의 link distance/strength를 관계별 극단값으로 변경 (taxonomy 35/1.0, related 280/0.15) |
+| 선택 노드 pin | fx/fy 고정 → 섹터 기준점 안정 |
+| directional force | 이웃을 관계별 방향으로 행/열 배치. UP=상위(parent,whole), DOWN=하위(child,part), LEFT=선행(dependency,prev), RIGHT=후행(dependent,next), OUTER=연관(related,ref) |
+| 행/열 그리드 | 둥글게 퍼지지 않고 가로 행(UP/DOWN) 또는 세로 열(LEFT/RIGHT)로 나열. 다수 시 자동 줄바꿈 |
+| barycenter 정렬 | 섹터 내 노드를 연결 대상 평균 좌표로 정렬 → 행 내 엣지 교차 최소화 (Sugiyama 기법) |
+| position memory 면제 | 1차+2차 이웃을 면제하여 directional이 100% 작용 (면제 안 하면 0.08이 0.5을 73% 흡수해 수렴 극도로 느림) |
+| 2차 이웃 편향 | 1차 이웃의 연결 노드(2차)를 해당 섹터 바깥 방향으로 약한 편향(0.15) → 엣지가 선택 노드를 관통하지 않음 |
+| 선택 해제 | directional 제거, 현재 위치를 새 home으로 저장 (복귀 안 함) |
+
+**관계별 거리 우선순위 (가까운 순)**:
+
+| 우선순위 | 관계 | 기본 dist | 포커스 dist | 방향 |
+|----------|------|----------|-----------|------|
+| 1 | taxonomy (broader/narrower) | 50 | 35 | UP(parent) / DOWN(child) |
+| 2 | part-whole (hasPart/isPartOf) | 50 | 35 | DOWN(part) / UP(whole) |
+| 3 | sequence (nextItem/previousItem) | 80 | 60 | RIGHT(next) / LEFT(prev) |
+| 4 | dependency (requires/isRequiredBy) | 100 | 80 | LEFT(dep) / RIGHT(dependent) |
+| 5 | reference (references/isReferencedBy) | 200 | 250 | OUTER |
+| 6 | association (related) | 200 | 280 | OUTER |
 
 ### 시각 요소
 
