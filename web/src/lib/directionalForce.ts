@@ -144,7 +144,7 @@ export function createDirectionalForce(
     primaryNeighbors.push({ nodeId: neighborId, sector });
   }
 
-  // Group by sector and assign row/column indices.
+  // Group by sector.
   const sectorGroups = new Map<Exclude<Sector, 'outer'>, string[]>();
   for (const n of primaryNeighbors) {
     if (n.sector === 'outer') continue;
@@ -154,6 +154,43 @@ export function createDirectionalForce(
     group.push(n.nodeId);
   }
 
+  // ── Barycenter ordering ──────────────────────────────────────
+  //
+  // Sort nodes within each sector by the average position of their
+  // connections (excluding the selected node). For UP/DOWN (horizontal
+  // rows), sort by average X. For LEFT/RIGHT (vertical columns), sort
+  // by average Y. This minimises edge crossings within each row/column.
+  //
+  // We build a per-node adjacency position average from the current
+  // simulation state. The nodeMap is populated in force.initialize(),
+  // but at creation time it may be empty — so we build a temporary
+  // position map from forceNodes if available, otherwise fall back to
+  // insertion order (first render).
+
+  const barycenter = (nodeId: string, axis: 'x' | 'y'): number => {
+    let sum = 0;
+    let count = 0;
+    for (const link of links) {
+      const srcId = typeof link.source === 'string' ? link.source : link.source.id;
+      const tgtId = typeof link.target === 'string' ? link.target : link.target.id;
+      let otherId: string | null = null;
+      if (srcId === nodeId) otherId = tgtId;
+      else if (tgtId === nodeId) otherId = srcId;
+      if (!otherId || otherId === selectedId) continue;
+      const other = nodeMap.get(otherId);
+      if (!other) continue;
+      const val = axis === 'x' ? other.x : other.y;
+      if (val !== undefined) { sum += val; count++; }
+    }
+    return count > 0 ? sum / count : 0;
+  };
+
+  for (const [sector, ids] of sectorGroups) {
+    const axis: 'x' | 'y' = (sector === 'up' || sector === 'down') ? 'x' : 'y';
+    ids.sort((a, b) => barycenter(a, axis) - barycenter(b, axis));
+  }
+
+  // Assign row/column indices after sorting.
   const primaryLookup = new Map<string, {
     sector: Exclude<Sector, 'outer'>;
     index: number;
