@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
-import { fetchGraph, type GraphData } from './api/graph';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchGraph, type GraphData, type GraphNode } from './api/graph';
 import { GraphView } from './components/GraphView';
 import { RelationFilter } from './components/RelationFilter';
 import { DetailsPanel } from './components/DetailsPanel';
+import { ContextMenu } from './components/ContextMenu';
 import { buildIndex } from './lib/graphIndex';
 import { ALL_RELATIONS } from './lib/relationStyle';
+
+type ContextMenuState = {
+  x: number;
+  y: number;
+  node: GraphNode;
+} | null;
 
 export default function App() {
   const [data, setData] = useState<GraphData | null>(null);
@@ -13,6 +20,7 @@ export default function App() {
   const [visibleRelations, setVisibleRelations] = useState<Set<string>>(
     () => new Set(ALL_RELATIONS),
   );
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +38,13 @@ export default function App() {
 
   const index = useMemo(() => (data ? buildIndex(data) : null), [data]);
   const selected = selectedId && index ? index.nodeById.get(selectedId) ?? null : null;
+
+  const handleContextMenu = useCallback((node: GraphNode, event: MouseEvent) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, node });
+  }, []);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   return (
     <div className="app">
@@ -65,11 +80,20 @@ export default function App() {
               selectedId={selectedId}
               visibleRelations={visibleRelations}
               onSelect={setSelectedId}
+              onNodeRightClick={handleContextMenu}
             />
             <DetailsPanel selected={selected} graph={data} index={index} onSelect={setSelectedId} />
           </>
         )}
       </main>
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          node={contextMenu.node}
+          onClose={closeContextMenu}
+        />
+      )}
     </div>
   );
 }

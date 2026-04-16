@@ -17,6 +17,7 @@ type Props = {
   selectedId: string | null;
   visibleRelations: Set<string>;
   onSelect: (id: string | null) => void;
+  onNodeRightClick?: (node: GraphNode, event: MouseEvent) => void;
 };
 
 type Positioned = GraphNode & { x?: number; y?: number };
@@ -131,7 +132,7 @@ function controlPoint(
   return { cx: mx + nx * offset, cy: my + ny * offset };
 }
 
-export function GraphView({ data, index, selectedId, visibleRelations, onSelect }: Props) {
+export function GraphView({ data, index, selectedId, visibleRelations, onSelect, onNodeRightClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -543,6 +544,10 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
             }
           }}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
+          onNodeRightClick={onNodeRightClick
+            ? (node, event) => onNodeRightClick(node as GraphNode, event)
+            : undefined
+          }
           nodeCanvasObject={(node, ctx, globalScale) => {
             const n = node as Positioned;
             if (n.x === undefined || n.y === undefined) return;
