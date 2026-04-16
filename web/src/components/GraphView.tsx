@@ -482,7 +482,21 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
             }
           }}
           onNodeClick={(node) => {
-            const n = node as GraphNode;
+            const n = node as Positioned & { fx?: number; fy?: number };
+            // Unpin previously selected node, if any.
+            if (selectedIdRef.current) {
+              for (const nd of data.nodes) {
+                const p = nd as Positioned & { fx?: number; fy?: number };
+                if (p.id === selectedIdRef.current) {
+                  p.fx = undefined;
+                  p.fy = undefined;
+                  break;
+                }
+              }
+            }
+            // Pin the newly selected node as stable sector reference.
+            n.fx = n.x;
+            n.fy = n.y;
             onSelect(n.id);
             const fg = fgRef.current;
             if (fg) {
@@ -494,11 +508,22 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
             }
           }}
           onBackgroundClick={() => {
+            // Unpin the selected node.
+            if (selectedIdRef.current) {
+              for (const nd of data.nodes) {
+                const p = nd as Positioned & { fx?: number; fy?: number };
+                if (p.id === selectedIdRef.current) {
+                  p.fx = undefined;
+                  p.fy = undefined;
+                  break;
+                }
+              }
+            }
             onSelect(null);
             const fg = fgRef.current;
             if (fg) {
               fg.d3Force('directional', null);
-              // Don't reheat — keep arrangement, update homes.
+              // Keep arrangement, update homes.
               for (const n of data.nodes) {
                 const p = n as Positioned;
                 if (p.x !== undefined && p.y !== undefined) {

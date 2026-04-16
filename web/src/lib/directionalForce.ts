@@ -92,7 +92,7 @@ type ForceNode = {
 export function createDirectionalForce(
   selectedId: string,
   links: readonly GraphLink[],
-  strength: number = 0.12,
+  strength: number = 0.5,
 ) {
   let forceNodes: ForceNode[] = [];
   let nodeMap = new Map<string, ForceNode>();
