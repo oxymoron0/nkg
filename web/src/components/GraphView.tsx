@@ -5,6 +5,7 @@ import type { GraphData, GraphLink, GraphNode } from '../api/graph';
 import type { GraphIndex } from '../lib/graphIndex';
 import { CONTAINMENT_RELATIONS, bfsDescendants } from '../lib/graphIndex';
 import { canonicalEdges } from '../lib/canonicalEdges';
+import { createDirectionalForce } from '../lib/directionalForce';
 import { relationStyle, type ArrowKind } from '../lib/relationStyle';
 // We keep the graph topology stable even when the user toggles relation
 // filters, so react-force-graph does not re-initialise the simulation and
@@ -173,9 +174,30 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
   };
 
   const homePositions = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const selectedIdRef = useRef<string | null>(null);
+  const initialFitDone = useRef(false);
+  // IDs of the selected node's direct neighbours — exempt from position
+  // memory so directional force can move them freely to their sectors.
+  const exemptFromMemory = useRef<Set<string>>(new Set());
 
-  // Link distance/strength by relation type — this is what creates
-  // visible clusters in the force layout.
+  // ── Link distance/strength tables ──────────────────────────────
+  //
+  // Relation closeness priority (1 = closest):
+  //   1. taxonomy  (broader/narrower)      — structural hierarchy
+  //   2. part-whole (hasPart/isPartOf)      — structural composition
+  //   3. sequence  (nextItem/previousItem)  — ordered adjacency
+  //   4. dependency (requires/isRequiredBy) — logical dependency
+  //   5. reference (references/isReferencedBy) — citation, weak
+  //   6. association (related)              — thematic, weakest
+  //
+  // When the same node pair has multiple relations (e.g. taxonomy AND
+  // related), each relation is a separate canonical link. The shorter,
+  // stronger spring (taxonomy) naturally dominates in the simulation.
+  //
+  // "Focused" values apply ONLY to edges connected to the selected
+  // node. Taxonomy/part-whole pull tighter; association/reference push
+  // further — making the relation-type grouping more pronounced.
+
   const LINK_CONFIG: Record<string, { dist: number; str: number }> = {
     'skos:broader': { dist: 50, str: 0.8 },
     'dcterms:hasPart': { dist: 50, str: 0.8 },
@@ -184,8 +206,48 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     'skos:related': { dist: 200, str: 0.1 },
     'dcterms:references': { dist: 200, str: 0.1 },
   };
+  const FOCUSED_LINK_CONFIG: Record<string, { dist: number; str: number }> = {
+    'skos:broader': { dist: 35, str: 1.0 },
+    'dcterms:hasPart': { dist: 35, str: 1.0 },
+    'dcterms:requires': { dist: 80, str: 0.5 },
+    'schema:nextItem': { dist: 60, str: 0.6 },
+    'skos:related': { dist: 280, str: 0.15 },
+    'dcterms:references': { dist: 250, str: 0.12 },
+  };
   const DEFAULT_LINK = { dist: 130, str: 0.3 };
 
+  // Link accessors that read selectedIdRef to decide whether a link
+  // gets default or focused parameters. d3-force caches the values,
+  // so we re-register these functions whenever selection changes.
+  const linkDistFn = (l: unknown): number => {
+    const link = l as GraphLink;
+    const rel = link.relation;
+    const selId = selectedIdRef.current;
+    if (selId !== null) {
+      const srcId = typeof link.source === 'string' ? link.source : link.source.id;
+      const tgtId = typeof link.target === 'string' ? link.target : link.target.id;
+      if (srcId === selId || tgtId === selId) {
+        return (FOCUSED_LINK_CONFIG[rel] ?? DEFAULT_LINK).dist;
+      }
+    }
+    return (LINK_CONFIG[rel] ?? DEFAULT_LINK).dist;
+  };
+
+  const linkStrFn = (l: unknown): number => {
+    const link = l as GraphLink;
+    const rel = link.relation;
+    const selId = selectedIdRef.current;
+    if (selId !== null) {
+      const srcId = typeof link.source === 'string' ? link.source : link.source.id;
+      const tgtId = typeof link.target === 'string' ? link.target : link.target.id;
+      if (srcId === selId || tgtId === selId) {
+        return (FOCUSED_LINK_CONFIG[rel] ?? DEFAULT_LINK).str;
+      }
+    }
+    return (LINK_CONFIG[rel] ?? DEFAULT_LINK).str;
+  };
+
+  // Phase 1 setup: charge, link, position memory.
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
@@ -194,28 +256,22 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
     const link = fg.d3Force('link') as unknown as D3Link | undefined;
 
     charge?.strength(-800);
+    link?.distance(linkDistFn);
+    link?.strength(linkStrFn);
 
-    link?.distance((l: unknown) => {
-      const rel = (l as GraphLink).relation;
-      return (LINK_CONFIG[rel] ?? DEFAULT_LINK).dist;
-    });
-    link?.strength((l: unknown) => {
-      const rel = (l as GraphLink).relation;
-      return (LINK_CONFIG[rel] ?? DEFAULT_LINK).str;
-    });
-
-    // Remove old gravity force if present from a previous render.
     fg.d3Force('gravity', null);
 
-    // Register position-memory force (inactive until homePositions
-    // are populated in onEngineStop).
     type MemNode = { id?: string; x?: number; y?: number; vx?: number; vy?: number };
     let memNodes: MemNode[] = [];
     const MEM_STRENGTH = 0.08;
 
     function positionMemory(alpha: number) {
       for (const n of memNodes) {
-        const home = homePositions.current.get(String(n.id ?? ''));
+        const nid = String(n.id ?? '');
+        // Exempt selected node's neighbours so directional force
+        // can move them to their sectors without resistance.
+        if (exemptFromMemory.current.has(nid)) continue;
+        const home = homePositions.current.get(nid);
         if (!home || n.x === undefined || n.y === undefined) continue;
         n.vx! -= (n.x - home.x) * MEM_STRENGTH * alpha;
         n.vy! -= (n.y - home.y) * MEM_STRENGTH * alpha;
@@ -227,6 +283,39 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
 
     fg.d3Force('positionMemory', positionMemory as never);
   }, [data]);
+
+  // Re-register link distance/strength when selection changes so that
+  // d3-force re-evaluates cached per-link values with focused params.
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+    const fg = fgRef.current;
+    if (!fg) return;
+    const link = fg.d3Force('link') as unknown as D3Link | undefined;
+    link?.distance(linkDistFn);
+    link?.strength(linkStrFn);
+
+    // Compute exempt set: direct neighbours of the selected node.
+    if (selectedId !== null) {
+      const neighbors = new Set<string>();
+      for (const lnk of canonicalData.links) {
+        const srcId = typeof lnk.source === 'string' ? lnk.source : lnk.source.id;
+        const tgtId = typeof lnk.target === 'string' ? lnk.target : lnk.target.id;
+        if (srcId === selectedId) neighbors.add(tgtId);
+        else if (tgtId === selectedId) neighbors.add(srcId);
+      }
+      exemptFromMemory.current = neighbors;
+      fg.d3ReheatSimulation();
+    } else {
+      exemptFromMemory.current = new Set();
+      // Deselect: save current positions as new home.
+      for (const node of data.nodes) {
+        const n = node as Positioned;
+        if (n.x !== undefined && n.y !== undefined) {
+          homePositions.current.set(n.id, { x: n.x, y: n.y });
+        }
+      }
+    }
+  }, [selectedId, data.nodes]);
 
   // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
   // single direction, then give each concrete canonical link a stable
@@ -376,7 +465,11 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
             const charge = fg.d3Force('charge') as unknown as D3Charge | undefined;
             charge?.strength(-150);
             charge?.distanceMax(250);
-            fg.zoomToFit(400, 60);
+            // zoomToFit only on first layout — never reset user's zoom.
+            if (!initialFitDone.current) {
+              initialFitDone.current = true;
+              fg.zoomToFit(400, 60);
+            }
           }}
           onNodeDragEnd={() => {
             // Update home positions after drag so position-memory
@@ -388,8 +481,57 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect 
               }
             }
           }}
-          onNodeClick={(node) => onSelect((node as GraphNode).id)}
-          onBackgroundClick={() => onSelect(null)}
+          onNodeClick={(node) => {
+            const n = node as Positioned & { fx?: number; fy?: number };
+            // Unpin previously selected node, if any.
+            if (selectedIdRef.current) {
+              for (const nd of data.nodes) {
+                const p = nd as Positioned & { fx?: number; fy?: number };
+                if (p.id === selectedIdRef.current) {
+                  p.fx = undefined;
+                  p.fy = undefined;
+                  break;
+                }
+              }
+            }
+            // Pin the newly selected node as stable sector reference.
+            n.fx = n.x;
+            n.fy = n.y;
+            onSelect(n.id);
+            const fg = fgRef.current;
+            if (fg) {
+              fg.d3Force(
+                'directional',
+                createDirectionalForce(n.id, canonicalData.links) as never,
+              );
+              fg.d3ReheatSimulation();
+            }
+          }}
+          onBackgroundClick={() => {
+            // Unpin the selected node.
+            if (selectedIdRef.current) {
+              for (const nd of data.nodes) {
+                const p = nd as Positioned & { fx?: number; fy?: number };
+                if (p.id === selectedIdRef.current) {
+                  p.fx = undefined;
+                  p.fy = undefined;
+                  break;
+                }
+              }
+            }
+            onSelect(null);
+            const fg = fgRef.current;
+            if (fg) {
+              fg.d3Force('directional', null);
+              // Keep arrangement, update homes.
+              for (const n of data.nodes) {
+                const p = n as Positioned;
+                if (p.x !== undefined && p.y !== undefined) {
+                  homePositions.current.set(p.id, { x: p.x, y: p.y });
+                }
+              }
+            }
+          }}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
           nodeCanvasObject={(node, ctx, globalScale) => {
             const n = node as Positioned;
