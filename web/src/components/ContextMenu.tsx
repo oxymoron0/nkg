@@ -15,10 +15,10 @@ type Props = {
 };
 
 function notionPageUrl(pageId: string, protocol: 'https' | 'notion'): string {
-  // Insert dashes into the 32-char hex ID for Notion URL format.
+  // Notion URL router requires the undashed 32-char hex ID.
+  // Workspace slug is included for team workspace compatibility.
   const id = pageId.replace(/-/g, '');
-  const dashed = `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
-  return `${protocol}://www.notion.so/${dashed}`;
+  return `${protocol}://www.notion.so/leorca/${id}`;
 }
 
 export function ContextMenu({ x, y, node, onClose }: Props) {
