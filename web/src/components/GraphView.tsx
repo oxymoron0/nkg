@@ -9,6 +9,7 @@ import { createDirectionalForce } from '@/shared/lib/directionalForce';
 import type { GraphIndex } from '@/shared/lib/graphIndex';
 import { bfsDescendants, CONTAINMENT_RELATIONS } from '@/shared/lib/graphIndex';
 import { type ArrowKind, relationStyle } from '@/shared/lib/relationStyle';
+import { useGraphStore } from '@/stores/graphStore';
 // We keep the graph topology stable even when the user toggles relation
 // filters, so react-force-graph does not re-initialise the simulation and
 // nodes never get flung off-screen. Filtering happens at draw time only.
@@ -16,10 +17,6 @@ import { type ArrowKind, relationStyle } from '@/shared/lib/relationStyle';
 type Props = {
   data: GraphData;
   index: GraphIndex;
-  selectedId: string | null;
-  visibleRelations: Set<string>;
-  onSelect: (id: string | null) => void;
-  onNodeRightClick?: (node: GraphNode, event: MouseEvent) => void;
 };
 
 type Positioned = GraphNode & { x?: number; y?: number };
@@ -160,14 +157,12 @@ function controlPoint(
   return { cx: mx + nx * offset, cy: my + ny * offset };
 }
 
-export function GraphView({
-  data,
-  index,
-  selectedId,
-  visibleRelations,
-  onSelect,
-  onNodeRightClick,
-}: Props) {
+export function GraphView({ data, index }: Props) {
+  const selectedId = useGraphStore((s) => s.selectedId);
+  const visibleRelations = useGraphStore((s) => s.visibleRelations);
+  const setSelectedId = useGraphStore((s) => s.setSelectedId);
+  const openContextMenu = useGraphStore((s) => s.openContextMenu);
+
   const { ref: containerRef, size } = useResizeObserver<HTMLDivElement>();
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -495,7 +490,7 @@ export function GraphView({
             // Pin the newly selected node as stable sector reference.
             n.fx = n.x;
             n.fy = n.y;
-            onSelect(n.id);
+            setSelectedId(n.id);
             const fg = fgRef.current;
             if (fg) {
               fg.d3Force('directional', createDirectionalForce(n.id, canonicalData.links) as never);
@@ -514,7 +509,7 @@ export function GraphView({
                 }
               }
             }
-            onSelect(null);
+            setSelectedId(null);
             const fg = fgRef.current;
             if (fg) {
               fg.d3Force('directional', null);
@@ -528,11 +523,11 @@ export function GraphView({
             }
           }}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
-          onNodeRightClick={
-            onNodeRightClick
-              ? (node, event) => onNodeRightClick(node as GraphNode, event)
-              : undefined
-          }
+          onNodeRightClick={(node, event) => {
+            event.preventDefault();
+            const n = node as GraphNode;
+            openContextMenu(n, event.clientX, event.clientY);
+          }}
           nodeCanvasObject={(node, ctx, globalScale) => {
             const n = node as Positioned;
             if (n.x === undefined || n.y === undefined) return;

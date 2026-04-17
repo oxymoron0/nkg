@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import type { GraphNode } from '@/shared/domain/types';
+import { useGraphStore } from '@/stores/graphStore';
 
 import { notionPageUrl } from './notionUrl';
 
@@ -10,14 +10,9 @@ type MenuItem = {
   onClick: () => void;
 };
 
-type Props = {
-  x: number;
-  y: number;
-  node: GraphNode;
-  onClose: () => void;
-};
-
-export function ContextMenu({ x, y, node, onClose }: Props) {
+export function ContextMenu() {
+  const contextMenu = useGraphStore((s) => s.contextMenu);
+  const onClose = useGraphStore((s) => s.closeContextMenu);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close on click outside or Escape.
@@ -37,6 +32,9 @@ export function ContextMenu({ x, y, node, onClose }: Props) {
       document.removeEventListener('keydown', handleKey);
     };
   }, [onClose]);
+
+  if (!contextMenu) return null;
+  const { x, y, node } = contextMenu;
 
   const items: MenuItem[] = [
     {

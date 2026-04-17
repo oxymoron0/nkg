@@ -1,12 +1,14 @@
 import { ALL_RELATIONS, RELATION_CATEGORIES } from '@/shared/lib/relationStyle';
+import { useGraphStore } from '@/stores/graphStore';
 
 type Props = {
-  visible: Set<string>;
   counts: Map<string, number>;
-  onChange: (next: Set<string>) => void;
 };
 
-export function RelationFilter({ visible, counts, onChange }: Props) {
+export function RelationFilter({ counts }: Props) {
+  const visible = useGraphStore((s) => s.visibleRelations);
+  const setVisible = useGraphStore((s) => s.setVisibleRelations);
+
   const toggleCategory = (relations: string[]) => {
     const next = new Set(visible);
     const allOn = relations.every((r) => next.has(r));
@@ -15,11 +17,15 @@ export function RelationFilter({ visible, counts, onChange }: Props) {
     } else {
       for (const r of relations) next.add(r);
     }
-    onChange(next);
+    setVisible(next);
   };
 
-  const setAll = () => onChange(new Set(ALL_RELATIONS));
-  const setNone = () => onChange(new Set());
+  const setAll = () => {
+    setVisible(new Set(ALL_RELATIONS));
+  };
+  const setNone = () => {
+    setVisible(new Set());
+  };
 
   return (
     <div className="relation-filter">

@@ -1,15 +1,17 @@
-import type { GraphData, GraphNode } from '@/shared/domain/types';
+import type { GraphData } from '@/shared/domain/types';
 import type { GraphIndex } from '@/shared/lib/graphIndex';
 import { RELATION_CATEGORIES, relationStyle } from '@/shared/lib/relationStyle';
+import { useGraphStore } from '@/stores/graphStore';
 
 type Props = {
-  selected: GraphNode | null;
   graph: GraphData;
   index: GraphIndex;
-  onSelect: (id: string | null) => void;
 };
 
-export function DetailsPanel({ selected, graph, index, onSelect }: Props) {
+export function DetailsPanel({ graph, index }: Props) {
+  const selectedId = useGraphStore((s) => s.selectedId);
+  const setSelectedId = useGraphStore((s) => s.setSelectedId);
+  const selected = selectedId ? (index.nodeById.get(selectedId) ?? null) : null;
   if (!selected) {
     return (
       <aside className="details-panel">
@@ -79,7 +81,7 @@ export function DetailsPanel({ selected, graph, index, onSelect }: Props) {
               const target = index.nodeById.get(id);
               return (
                 <li key={id}>
-                  <button type="button" className="link-button" onClick={() => onSelect(id)}>
+                  <button type="button" className="link-button" onClick={() => setSelectedId(id)}>
                     {target?.label ?? id.slice(0, 8) + '…'}
                   </button>
                 </li>
@@ -99,7 +101,7 @@ export function DetailsPanel({ selected, graph, index, onSelect }: Props) {
           <button
             type="button"
             className="details-close"
-            onClick={() => onSelect(null)}
+            onClick={() => setSelectedId(null)}
             aria-label="Close"
           >
             ×
