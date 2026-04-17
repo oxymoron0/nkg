@@ -3,12 +3,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { ContextMenu } from '@/features/context-menu';
 import { DetailsPanel } from '@/features/details';
 import { RelationFilter } from '@/features/filter';
+import { GraphView } from '@/features/graph';
 import { fetchGraph } from '@/shared/api/graph';
 import type { GraphData } from '@/shared/domain/types';
 import { buildIndex } from '@/shared/lib/graphIndex';
 import { useGraphStore } from '@/stores/graphStore';
-
-import { GraphView } from './components/GraphView';
 
 export default function App() {
   const [data, setData] = useState<GraphData | null>(null);
