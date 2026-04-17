@@ -51,14 +51,32 @@ npm run typecheck     # tsc 타입 체크만
 - `eslint-plugin-react` + `react-hooks` + `react-refresh` (Vite HMR 호환)
 - `eslint-plugin-unused-imports`: 미사용 import 자동 제거
 - `eslint-plugin-simple-import-sort`: import/export 자동 정렬
+- `eslint-plugin-boundaries`: 아키텍처 경계 강제 — `feature → feature` 금지 (같은 feature는 예외), `shared/store`는 feature 참조 불가
 - `eslint-config-prettier`: Prettier와 충돌하는 스타일 규칙 비활성
 - `@typescript-eslint/consistent-type-imports`: `import type` 강제
 - `no-console`: `warn`/`error`만 허용
-- 제외 경로: `dist/`, `node_modules/`, `src/api/schema.d.ts` (자동 생성)
+- 제외 경로: `dist/`, `node_modules/`, `src/shared/api/schema.d.ts` (자동 생성)
 
 ### Prettier 설정 (`.prettierrc.json`)
 
 single quote · semicolon · trailing comma all · printWidth 100 · tab 2 · arrow paren always.
+
+### knip (`knip.json`)
+
+미사용 파일·export·dependency 검출기. `npm run knip`으로 수동 실행. 빌드 게이트에는 포함되지 않음 (경고 성격).
+
+## 아키텍처
+
+**Feature-based** 구조. 각 기능은 `features/<name>/`에 응집되고 `index.ts` barrel로 공개 API를 명시한다. 순수 유틸/타입은 `shared/`에, Zustand store는 `stores/`에 둔다. `eslint-plugin-boundaries`가 경계를 강제:
+
+- `app` → `features`, `shared`, `stores` 모두 가능
+- `features/<A>` → 같은 feature 내부 + `shared`/`stores` (다른 feature 금지)
+- `shared` → `shared` (React/feature 무관)
+- `stores` → `shared`
+
+Path aliases (`tsconfig.app.json` paths + `vite.config.ts` resolve.alias):
+
+- `@/app/*`, `@/features/*`, `@/shared/*`, `@/stores/*`
 
 ## 디렉터리
 
@@ -66,26 +84,61 @@ single quote · semicolon · trailing comma all · printWidth 100 · tab 2 · ar
 web/
 ├── index.html
 ├── package.json
-├── vite.config.ts              # /api, /healthz 프록시
-├── Dockerfile                  # node:22-alpine → nginx-unprivileged
-├── nginx.conf.template         # ${NKG_API_HOST} envsubst, SPA fallback
+├── eslint.config.js               # flat config + boundaries 경계 강제
+├── vite.config.ts                 # /api, /healthz 프록시 + path aliases
+├── tsconfig.app.json              # strict + paths
+├── Dockerfile                     # node:22-alpine → nginx-unprivileged
+├── nginx.conf.template            # ${NKG_API_HOST} envsubst, SPA fallback
 ├── src/
+│   ├── App.tsx                    # shell: 데이터 fetch + 레이아웃 조합
 │   ├── main.tsx
-│   ├── App.tsx                 # 상태: selectedId, visibleRelations
-│   ├── styles.css              # 다크 테마, 레이아웃
-│   ├── api/
-│   │   ├── client.ts           # openapi-fetch 인스턴스
-│   │   ├── graph.ts            # fetchGraph(), GraphNode/GraphLink 타입
-│   │   └── schema.d.ts         # openapi-typescript 자동 생성 (커밋됨)
-│   ├── components/
-│   │   ├── GraphView.tsx       # force-graph + WebVOWL 렌더 + hull overlay
-│   │   ├── RelationFilter.tsx  # 6 카테고리 토글 (클라이언트 필터)
-│   │   └── DetailsPanel.tsx    # 우측 상세 패널 (노드 info + relation 목록)
-│   └── lib/
-│       ├── relationStyle.ts    # 11 relation → 색/선/화살표/카테고리 매핑
-│       ├── graphIndex.ts       # degree, 인접 리스트, top-level, BFS
-│       ├── canonicalEdges.ts   # inverse 쌍 merge (broader↔narrower → broader)
-│       └── directionalForce.ts # 선택 노드 기준 방향별 행/열 배치 + 2차 이웃 recursive sub-sector
+│   ├── styles.css                 # 다크 테마
+│   ├── features/                  # 기능 단위 (barrel export)
+│   │   ├── context-menu/
+│   │   │   ├── ContextMenu.tsx    # 우클릭 메뉴 (Notion 열기 / ID 복사)
+│   │   │   ├── notionUrl.ts       # notionPageUrl(pageId, protocol) 빌더
+│   │   │   └── index.ts
+│   │   ├── details/
+│   │   │   ├── DetailsPanel.tsx   # 우측 상세 패널 (선택 노드 info + relations)
+│   │   │   └── index.ts
+│   │   ├── filter/
+│   │   │   ├── RelationFilter.tsx # 6 카테고리 토글 (클라이언트 필터)
+│   │   │   └── index.ts
+│   │   └── graph/
+│   │       ├── GraphView.tsx      # 조합 레이어 (훅/렌더러 합성)
+│   │       ├── types.ts           # Positioned, Hull, D3Charge, D3Link
+│   │       ├── simulation-helpers.ts  # pinNode, unpinNodeById, snapshotHomes
+│   │       ├── index.ts
+│   │       ├── hooks/
+│   │       │   ├── useCanonicalEdges.ts # inverse 쌍 merge + curvature useMemo
+│   │       │   ├── useConnectedIds.ts   # hover 연결 노드 dim 계산
+│   │       │   ├── useForceSimulation.ts # Phase 1/2 설정 + handleEngineStop
+│   │       │   ├── useHulls.ts          # containment BFS hull 멤버십
+│   │       │   └── useNodeSelection.ts  # 선택 → exempt set + reheat
+│   │       ├── renderers/
+│   │       │   ├── drawArrow.ts         # 방향 화살표 (scale-aware)
+│   │       │   ├── drawHulls.ts         # convex hull 오버레이
+│   │       │   ├── drawLink.ts          # Bezier 엣지 + 속성 박스
+│   │       │   ├── drawNode.ts          # nodeRadius + 노드 캔버스 draw
+│   │       │   └── geometry.ts          # pointOnQuadratic, controlPoint
+│   │       └── force/
+│   │           ├── config.ts            # LINK_CONFIG, 색 상수, phase 파라미터
+│   │           └── directionalForce.ts  # 방향별 행/열 배치 + 2차 sub-sector
+│   ├── shared/                    # React 무관 순수 유틸 + 공용 훅
+│   │   ├── api/
+│   │   │   ├── client.ts          # openapi-fetch 인스턴스
+│   │   │   ├── graph.ts           # fetchGraph()
+│   │   │   └── schema.d.ts        # openapi-typescript 자동 생성 (커밋됨)
+│   │   ├── domain/
+│   │   │   └── types.ts           # GraphNode / GraphLink / GraphData
+│   │   ├── hooks/
+│   │   │   └── useResizeObserver.ts
+│   │   └── lib/
+│   │       ├── canonicalEdges.ts  # inverse 쌍 merge (broader↔narrower → broader)
+│   │       ├── graphIndex.ts      # degree, 인접 리스트, top-level, BFS
+│   │       └── relationStyle.ts   # 11 relation → 색/선/화살표/카테고리 매핑
+│   └── stores/
+│       └── graphStore.ts          # Zustand: selectedId, visibleRelations, contextMenu + actions
 ```
 
 ## Force Model
@@ -114,7 +167,7 @@ web/
 
 **Position memory vs gravity**: 기존 gravity는 모든 노드를 (0,0) 절대 좌표로 당겨 드래그 시 전체 그래프를 수축시켰음. Position memory는 각 노드를 자신의 수렴 위치(home position)로 당기므로 드래그 시 나머지 노드가 제자리를 유지.
 
-### Phase 3 — 노드 선택 시 Directional 배치 (`directionalForce.ts`)
+### Phase 3 — 노드 선택 시 Directional 배치 (`features/graph/force/directionalForce.ts`)
 
 노드를 클릭하면 해당 노드에 연결된 이웃이 관계 종류별 **방향·거리**로 자동 재배치.
 
@@ -175,7 +228,7 @@ web/
 
 ### 엣지
 
-- relation별 색/선/화살표 (`lib/relationStyle.ts` 참조)
+- relation별 색/선/화살표 (`shared/lib/relationStyle.ts` 참조)
 - canonicalEdges로 inverse 쌍 merge → pair-count 기반 curvature
 - globalScale ≥ 1.2 에서 엣지 중앙에 relation 이름 속성 박스 표시
 

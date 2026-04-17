@@ -40,16 +40,34 @@ internal/
 
 web/                         # 프런트엔드 (별도 README 참조)
 ├── src/
-│   ├── components/          # GraphView, RelationFilter, DetailsPanel
-│   ├── lib/                 # relationStyle, graphIndex, canonicalEdges
-│   └── api/                 # openapi-fetch 클라이언트 + 자동 생성 타입
+│   ├── App.tsx, main.tsx, styles.css
+│   ├── features/            # 기능 단위 응집 (barrel export)
+│   │   ├── context-menu/    # ContextMenu + notionUrl
+│   │   ├── details/         # DetailsPanel
+│   │   ├── filter/          # RelationFilter
+│   │   └── graph/           # GraphView + hooks/ + renderers/ + force/
+│   ├── shared/              # React 무관 순수 유틸 + 공용 훅
+│   │   ├── api/             # openapi-fetch 클라이언트 + 자동 생성 타입
+│   │   ├── domain/          # GraphNode/GraphLink/GraphData 타입
+│   │   ├── hooks/           # useResizeObserver
+│   │   └── lib/             # canonicalEdges, graphIndex, relationStyle
+│   └── stores/              # Zustand store (graphStore: selectedId 등)
+├── eslint.config.js         # flat config + eslint-plugin-boundaries 경계 강제
 ├── Dockerfile               # node:22-alpine → nginx-unprivileged
 └── nginx.conf.template      # API 프록시, SPA fallback
 
 Dockerfile                   # Go API 서버 (golang:1.25-alpine → distroless)
 ```
 
-의존성은 항상 상위 레이어 → 하위 레이어 방향. 역방향 의존 금지.
+**Go 백엔드**: 의존성은 항상 상위 레이어 → 하위 레이어 방향. 역방향 의존 금지.
+
+**Web 프런트엔드 (feature-based)**: `eslint-plugin-boundaries`가 강제하는 의존 규칙:
+- `app` → `feature` / `shared` / `store` 모두 가능
+- `feature` → 같은 feature, `shared`, `store` (다른 feature 금지)
+- `shared` → `shared` (React 무관, feature/store 참조 금지)
+- `store` → `shared` (feature 참조 금지)
+
+Path aliases: `@/app/*`, `@/features/*`, `@/shared/*`, `@/stores/*` (`tsconfig.app.json` + `vite.config.ts`).
 
 ## SSOT Decision
 
@@ -129,30 +147,34 @@ Two-phase force 시뮬레이션 + 선택 시 directional 배치.
 
 ### 시뮬레이션 파라미터 단일 정의 (Cheatsheet)
 
-모든 force/거리/강도 값을 한 곳에서 확인. 변경 시 이 표와 코드(`web/src/lib/directionalForce.ts`, `web/src/components/GraphView.tsx`)를 함께 갱신.
+모든 force/거리/강도 값을 한 곳에서 확인. 변경 시 이 표와 코드를 함께 갱신. 주요 소스 위치:
+- `web/src/features/graph/force/config.ts` — LINK_CONFIG, FOCUSED_LINK_CONFIG, DEFAULT_LINK, 색 상수, phase 파라미터
+- `web/src/features/graph/force/directionalForce.ts` — SECTOR_CONFIGS, 2차 이웃 sub-sector
+- `web/src/features/graph/hooks/useForceSimulation.ts` — Phase 1/2 적용
+- `web/src/features/graph/hooks/useNodeSelection.ts` — 선택 시 exempt set + directional 부착
 
 | 카테고리 | 파라미터 | 값 | 위치 |
 |---------|---------|-----|------|
-| **Phase 1 charge** | strength | -800 | GraphView Phase1 useEffect |
-| **Phase 2 charge** | strength | -150 | GraphView onEngineStop |
-| | distanceMax | 250 | 동상 |
-| **link force (base)** | taxonomy dist/str | 50 / 0.8 | GraphView LINK_CONFIG |
+| **Phase 1 charge** | strength | -800 | `force/config.ts` PHASE1_CHARGE |
+| **Phase 2 charge** | strength | -150 | `force/config.ts` PHASE2_CHARGE |
+| | distanceMax | 250 | `force/config.ts` PHASE2_CHARGE_DIST_MAX |
+| **link force (base)** | taxonomy dist/str | 50 / 0.8 | `force/config.ts` LINK_CONFIG |
 | | part-whole dist/str | 50 / 0.8 | 동상 |
 | | dependency dist/str | 100 / 0.4 | 동상 |
 | | sequence dist/str | 80 / 0.5 | 동상 |
 | | reference dist/str | 200 / 0.1 | 동상 |
 | | related dist/str | 200 / 0.1 | 동상 |
-| | default dist/str | 130 / 0.3 | DEFAULT_LINK |
-| **link force (focused, 선택 노드 엣지)** | taxonomy dist/str | 35 / 1.0 | FOCUSED_LINK_CONFIG |
+| | default dist/str | 130 / 0.3 | `force/config.ts` DEFAULT_LINK |
+| **link force (focused, 선택 노드 엣지)** | taxonomy dist/str | 35 / 1.0 | `force/config.ts` FOCUSED_LINK_CONFIG |
 | | part-whole dist/str | 35 / 1.0 | 동상 |
 | | dependency dist/str | 80 / 0.5 | 동상 |
 | | sequence dist/str | 60 / 0.6 | 동상 |
 | | reference dist/str | 250 / 0.12 | 동상 |
 | | related dist/str | 280 / 0.15 | 동상 |
-| **position memory** | strength | 0.08 | GraphView positionMemory force |
-| | exempt | 1차 + 2차 이웃 | 동상 |
-| **directional (1차)** | strength | 0.5 | createDirectionalForce default |
-| | UP/DOWN minGap | 60 | SECTOR_CONFIGS |
+| **position memory** | strength | 0.08 | `force/config.ts` POSITION_MEMORY_STRENGTH |
+| | exempt | 1차 + 2차 이웃 | `hooks/useNodeSelection.ts` |
+| **directional (1차)** | strength | 0.5 | `force/directionalForce.ts` createDirectionalForce default |
+| | UP/DOWN minGap | 60 | `force/directionalForce.ts` SECTOR_CONFIGS |
 | | UP/DOWN colSpacing | 55 | 동상 |
 | | UP/DOWN rowSpacing | 45 | 동상 |
 | | UP/DOWN maxPerRow | 6 | 동상 |
@@ -170,19 +192,26 @@ Two-phase force 시뮬레이션 + 선택 시 directional 배치.
 | **alpha** | d3AlphaDecay | 0.02 | ForceGraph2D prop |
 | | d3VelocityDecay | 0.3 | 동상 |
 | | cooldownTicks | 200 | 동상 |
-| **node 시각** | radius | 6 + 2*log(1+degree) | nodeRadius() |
-| | top-level color | #3A4894 | NODE_TOP_LEVEL_COLOR |
-| | normal color | #5D6CC1 | NODE_COLOR |
-| | selected ring | #fbbf24 | NODE_SELECTED_RING |
-| | hover ring | #9ca3af | NODE_HOVER_RING |
-| | dim alpha | 0.15 | DIM_ALPHA |
-| **곡률 (curvature)** | 단일 엣지 | 0 | linkCurvatureFor |
-| | 양방향 N번째 | 0.18*((N+1)>>1)*sign | 동상 |
+| **node 시각** | radius | 6 + 2*log(1+degree) | `renderers/drawNode.ts` nodeRadius() |
+| | top-level color | #3A4894 | `force/config.ts` NODE_TOP_LEVEL_COLOR |
+| | normal color | #5D6CC1 | `force/config.ts` NODE_COLOR |
+| | selected ring | #fbbf24 | `force/config.ts` NODE_SELECTED_RING |
+| | hover ring | #9ca3af | `force/config.ts` NODE_HOVER_RING |
+| | dim alpha | 0.15 | `force/config.ts` DIM_ALPHA |
+| **곡률 (curvature)** | 단일 엣지 | 0 | `hooks/useCanonicalEdges.ts` |
+| | 양방향 N번째 | `CURVATURE_STEP*((N+1)>>1)*sign` | `force/config.ts` CURVATURE_STEP=0.18 |
+
+### 상태 관리 (Zustand)
+
+`src/stores/graphStore.ts`에 cross-cutting UI 상태를 둔다:
+- `selectedId`, `visibleRelations`, `contextMenu` + 4개 action
+- 컴포넌트는 `useGraphStore((s) => s.field)` 단일 필드 셀렉터로 구독 → 리렌더 최소화
+- 그래프 데이터(`data`, `index`)는 fetch 수명주기와 엮이므로 store가 아닌 App.tsx 로컬 상태로 유지
 
 ### 시각 요소
 
 - **노드**: degree 기반 원형, top-level Is-A 구분 (진한 블루 + 흰 테두리)
-- **엣지**: relation별 색/선/화살표 구분 (relationStyle.ts), canonicalEdges로 inverse 쌍 merge
+- **엣지**: relation별 색/선/화살표 구분 (`shared/lib/relationStyle.ts`), canonicalEdges로 inverse 쌍 merge
 - **속성 박스**: 엣지 중앙에 relation 이름 표시 (globalScale ≥ 1.2)
 - **Hull**: top-level Is-A 하위 BFS → 반투명 convex hull 오버레이
 - **필터 바**: 6 카테고리 토글 (클라이언트 사이드, 시뮬레이션 불변)
@@ -195,8 +224,14 @@ cd web
 npm install
 npm run dev                    # http://localhost:5173 (API → :18080 프록시)
 npm run gen:api                # openapi.yaml → schema.d.ts 재생성
-npm run build                  # tsc + vite build → dist/
+npm run lint                   # ESLint (flat config + boundaries)
+npm run format:check           # Prettier
+npm run typecheck              # tsc -b --noEmit
+npm run knip                   # 미사용 파일/export/deps
+npm run build                  # lint + format:check + tsc + vite build → dist/
 ```
+
+빌드 스크립트가 lint error 또는 Prettier diff 있을 시 즉시 실패 → Docker 이미지 빌드도 동일 게이트 적용.
 
 ## Docker / Harbor
 
