@@ -22,6 +22,15 @@ npm run dev                    # http://localhost:5173
 NKG_API_URL=http://host:8080 npm run dev    # API 위치 변경
 ```
 
+## 환경 변수
+
+| 변수                        | 용도                                                                                                                               | 필수 여부                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `NKG_API_URL`               | `npm run dev` 의 `/api`, `/healthz` 프록시 대상                                                                                    | 선택 (기본 `http://localhost:18080`) |
+| `VITE_NKG_NOTION_WORKSPACE` | 우클릭 컨텍스트 메뉴의 Notion URL 워크스페이스 슬러그 (`https://www.notion.so/<slug>/<pageId>`) — Vite가 빌드 시점에 번들에 인라인 | **필수** — 미설정/빈값 시 빌드 실패  |
+
+`.env.example` 를 `.env` 로 복사 후 값을 확정하라. **폴백 없음**: 설정이 누락되면 `vite.config.ts` 가 명시적인 에러 메시지와 함께 build/dev 시작을 중단한다. Docker 빌드는 `--build-arg VITE_NKG_NOTION_WORKSPACE=<slug>` 필수.
+
 ## 빌드
 
 ```bash
@@ -251,8 +260,13 @@ web/
 ## Docker 배포
 
 ```bash
-# 이미지 빌드
-docker build -t harbor.leorca.org/nkg/nkg-web:latest .
+# 이미지 빌드 — VITE_NKG_NOTION_WORKSPACE 는 필수. 생략 시 빌드 실패.
+docker build --build-arg VITE_NKG_NOTION_WORKSPACE=leorca \
+  -t harbor.leorca.org/nkg/nkg-web:latest .
+
+# 다른 Notion 워크스페이스용 이미지
+docker build --build-arg VITE_NKG_NOTION_WORKSPACE=acme \
+  -t harbor.leorca.org/nkg/nkg-web:acme .
 
 # 실행 (nkg-api와 같은 네트워크)
 docker run -d --name nkg-web --network nkg-net -p 18081:8080 \
@@ -260,4 +274,7 @@ docker run -d --name nkg-web --network nkg-net -p 18081:8080 \
   harbor.leorca.org/nkg/nkg-web:latest
 ```
 
-`NKG_API_HOST`는 nginx envsubst로 치환. 기본값 `nkg-api:8080`.
+| 변수                        | 적용 시점                                      | 필수 여부                               |
+| --------------------------- | ---------------------------------------------- | --------------------------------------- |
+| `VITE_NKG_NOTION_WORKSPACE` | 빌드 시 `--build-arg` (Vite 인라인)            | **필수** — 생략 시 `npm run build` 실패 |
+| `NKG_API_HOST`              | 런타임 env, nginx envsubst로 `nginx.conf` 치환 | 선택 (기본 `nkg-api:8080`)              |

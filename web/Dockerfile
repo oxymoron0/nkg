@@ -8,7 +8,15 @@ RUN npm ci
 
 COPY tsconfig.json tsconfig.app.json tsconfig.node.json ./
 COPY vite.config.ts index.html ./
+COPY eslint.config.js .prettierrc.json .prettierignore ./
 COPY src ./src
+
+# Notion workspace slug for the right-click context menu. Required — the
+# build fails when unset or empty. Vite inlines VITE_* env vars into the
+# bundle at build time.
+#   docker build --build-arg VITE_NKG_NOTION_WORKSPACE=<slug> ...
+ARG VITE_NKG_NOTION_WORKSPACE
+ENV VITE_NKG_NOTION_WORKSPACE=${VITE_NKG_NOTION_WORKSPACE}
 
 RUN npm run build
 

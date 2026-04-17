@@ -246,7 +246,9 @@ docker run -d --name nkg-api -p 18080:8080 \
   -v "$PWD/config:/app/config:ro" -v "$PWD/token:/app/token:ro" \
   harbor.leorca.org/nkg/nkg-api:latest
 
-# Web (nginx, API 프록시)
+# Web (nginx, API 프록시). VITE_NKG_NOTION_WORKSPACE 는 빌드 시 필수 인자.
+# 폴백 없음 — 누락 시 `npm run build` 실패. 워크스페이스별로 별도 빌드:
+#   docker build --build-arg VITE_NKG_NOTION_WORKSPACE=leorca -t ... web/
 docker run -d --name nkg-web --network nkg-net -p 18081:8080 \
   -e NKG_API_HOST=nkg-api:8080 \
   harbor.leorca.org/nkg/nkg-web:latest
