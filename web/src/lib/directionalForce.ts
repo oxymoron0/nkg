@@ -70,6 +70,32 @@ type NeighborInfo = {
  * Compute the target (x, y) for a node at position `index` within a
  * sector that has `total` nodes, relative to the selected node at (sx, sy).
  */
+/**
+ * Compute the target (x, y) for a 2nd-degree node placed around its
+ * parent (px, py). Uses smaller distances than sectorTarget so child
+ * arrangements don't overlap with parent rows.
+ */
+function subSectorTarget(
+  px: number, py: number,
+  sector: Exclude<Sector, 'outer'>,
+  index: number, total: number,
+): { x: number; y: number } {
+  const SUB_GAP = 50;
+  const SUB_COL = 40;
+  const SUB_MAX = 4;
+  const row = Math.floor(index / SUB_MAX);
+  const col = index % SUB_MAX;
+  const nodesInRow = Math.min(SUB_MAX, total - row * SUB_MAX);
+  const offset = col - (nodesInRow - 1) / 2;
+
+  switch (sector) {
+    case 'up':    return { x: px + offset * SUB_COL, y: py - SUB_GAP - row * SUB_COL };
+    case 'down':  return { x: px + offset * SUB_COL, y: py + SUB_GAP + row * SUB_COL };
+    case 'left':  return { x: px - SUB_GAP - row * SUB_COL, y: py + offset * SUB_COL };
+    case 'right': return { x: px + SUB_GAP + row * SUB_COL, y: py + offset * SUB_COL };
+  }
+}
+
 function sectorTarget(
   sx: number, sy: number,
   sector: Exclude<Sector, 'outer'>,
@@ -204,36 +230,88 @@ export function createDirectionalForce(
 
   // ── Phase 2: identify 2nd-degree neighbours ──
   //
-  // For each 1st-degree neighbour B in sector S, find B's own neighbours
-  // (C) that are NOT the selected node and NOT themselves 1st-degree.
-  // These 2nd-degree nodes get a weak bias toward the OUTER side of S,
-  // preventing their edges from crossing through the selected node.
+  // Each 2nd-degree node C is connected to a 1st-degree parent B. We
+  // place C in a SUB-SECTOR around B, mirroring the directional logic
+  // but at smaller scale and weaker strength. Sub-sector direction is
+  // chosen to:
+  //   1. Honour the relation type between B and C (if structural)
+  //   2. Continue the parent's primary axis direction (avoid edge crossing)
+  //
+  // For example: A is selected, B is at A's DOWN sector, B has a
+  // taxonomy child C → C goes to B's DOWN sub-sector (continues axis).
+  // B has a related D → D goes to OUTER (weak fallback bias).
 
-  // Map: secondaryId → sector of its primary parent (for bias direction)
-  const secondaryBias = new Map<string, Exclude<Sector, 'outer'>>();
-  const SECONDARY_STRENGTH = 0.15; // weaker than primary (0.5)
-  const SECONDARY_EXTRA_GAP = 80;  // additional distance beyond primary rows
+  type SecondaryInfo = {
+    parentId: string;
+    parentSector: Exclude<Sector, 'outer'>;
+    subSector: Exclude<Sector, 'outer'> | 'outer';
+    subRelation: string;
+  };
+  const secondaryInfo = new Map<string, SecondaryInfo>();
+  const SECONDARY_STRENGTH = 0.2;
+  const SECONDARY_OUTER_GAP = 80;
+
+  // Helper: derive sub-sector for C around B given relation B↔C and B's
+  // own primary sector. We use DIRECTION_MAP to map the B-C relation
+  // into a direction relative to B, then return that direction.
+  function deriveSubSector(
+    relation: string,
+    bIsSource: boolean,
+    parentSector: Exclude<Sector, 'outer'>,
+  ): Exclude<Sector, 'outer'> | 'outer' {
+    const dirConfig = DIRECTION_MAP[relation];
+    if (!dirConfig) return parentSector; // unknown relation → continue axis
+    const dir = bIsSource ? dirConfig.asSource : dirConfig.asTarget;
+    return dir; // taxonomy/part-whole/dependency/sequence map to a direction;
+                // related/references map to 'outer'
+  }
 
   for (const link of links) {
     const srcId = typeof link.source === 'string' ? link.source : link.source.id;
     const tgtId = typeof link.target === 'string' ? link.target : link.target.id;
 
-    // Find links where one end is a primary neighbour and the other is not selected/primary.
+    // Find links where one end is a primary neighbour and the other is
+    // not selected and not itself 1st-degree.
     let primaryId: string | null = null;
     let secondaryId: string | null = null;
-
+    let bIsSource = false;
     if (primarySet.has(srcId) && !primarySet.has(tgtId) && tgtId !== selectedId) {
-      primaryId = srcId; secondaryId = tgtId;
+      primaryId = srcId; secondaryId = tgtId; bIsSource = true;
     } else if (primarySet.has(tgtId) && !primarySet.has(srcId) && srcId !== selectedId) {
-      primaryId = tgtId; secondaryId = srcId;
+      primaryId = tgtId; secondaryId = srcId; bIsSource = false;
     }
-
     if (!primaryId || !secondaryId) continue;
-    if (secondaryBias.has(secondaryId)) continue; // first primary parent wins
+    if (secondaryInfo.has(secondaryId)) continue; // first parent wins
 
     const parentInfo = primaryLookup.get(primaryId);
-    if (parentInfo) {
-      secondaryBias.set(secondaryId, parentInfo.sector);
+    if (!parentInfo) continue;
+
+    const subSector = deriveSubSector(link.relation, bIsSource, parentInfo.sector);
+    secondaryInfo.set(secondaryId, {
+      parentId: primaryId,
+      parentSector: parentInfo.sector,
+      subSector,
+      subRelation: link.relation,
+    });
+  }
+
+  // Group 2nd-degree nodes by parent + sub-sector for barycenter sort.
+  const secondaryGroups = new Map<string, string[]>(); // key: "parentId|subSector"
+  for (const [nodeId, info] of secondaryInfo) {
+    if (info.subSector === 'outer') continue;
+    const key = `${info.parentId}|${info.subSector}`;
+    let group = secondaryGroups.get(key);
+    if (!group) { group = []; secondaryGroups.set(key, group); }
+    group.push(nodeId);
+  }
+  // Sort each group by barycenter (excluding selected and parent).
+  const secondaryIndex = new Map<string, { index: number; total: number }>();
+  for (const [key, ids] of secondaryGroups) {
+    const subSector = key.split('|')[1] as Exclude<Sector, 'outer'>;
+    const axis: 'x' | 'y' = (subSector === 'up' || subSector === 'down') ? 'x' : 'y';
+    ids.sort((a, b) => barycenter(a, axis) - barycenter(b, axis));
+    for (let i = 0; i < ids.length; i++) {
+      secondaryIndex.set(ids[i], { index: i, total: ids.length });
     }
   }
 
@@ -257,26 +335,39 @@ export function createDirectionalForce(
       node.vy! += (target.y - node.y) * strength * alpha;
     }
 
-    // 2nd-degree: weak bias toward the outer side of their parent's sector.
-    // This prevents edges from crossing through the selected node.
-    for (const [nodeId, sector] of secondaryBias) {
+    // 2nd-degree: place around their parent in a sub-sector, mirroring
+    // the directional logic. Strength is weaker than primary so parent's
+    // own sector position dominates.
+    for (const [nodeId, info] of secondaryInfo) {
       const node = nodeMap.get(nodeId);
       if (!node || node.x === undefined || node.y === undefined) continue;
+      const parent = nodeMap.get(info.parentId);
+      if (!parent || parent.x === undefined || parent.y === undefined) continue;
 
-      const cfg = SECTOR_CONFIGS[sector];
-      // Push further out in the sector's primary direction.
-      const totalRows = Math.ceil(
-        (sectorGroups.get(sector)?.length ?? 1) / cfg.maxPerRow,
-      );
-      const extraDist = cfg.minGap + totalRows * cfg.rowSpacing + SECONDARY_EXTRA_GAP;
+      let targetX: number;
+      let targetY: number;
 
-      let targetX = selected.x;
-      let targetY = selected.y;
-      switch (sector) {
-        case 'up':    targetY = selected.y - extraDist; break;
-        case 'down':  targetY = selected.y + extraDist; break;
-        case 'left':  targetX = selected.x - extraDist; break;
-        case 'right': targetX = selected.x + extraDist; break;
+      if (info.subSector === 'outer') {
+        // Outer fallback: push along parent's primary axis, beyond parent.
+        const parentCfg = SECTOR_CONFIGS[info.parentSector];
+        const totalRows = Math.ceil(
+          (sectorGroups.get(info.parentSector)?.length ?? 1) / parentCfg.maxPerRow,
+        );
+        const extraDist = parentCfg.minGap + totalRows * parentCfg.rowSpacing + SECONDARY_OUTER_GAP;
+        targetX = selected.x;
+        targetY = selected.y;
+        switch (info.parentSector) {
+          case 'up':    targetY = selected.y - extraDist; break;
+          case 'down':  targetY = selected.y + extraDist; break;
+          case 'left':  targetX = selected.x - extraDist; break;
+          case 'right': targetX = selected.x + extraDist; break;
+        }
+      } else {
+        // Sub-sector: position around parent in computed direction with barycenter index.
+        const idx = secondaryIndex.get(nodeId) ?? { index: 0, total: 1 };
+        const sub = subSectorTarget(parent.x, parent.y, info.subSector, idx.index, idx.total);
+        targetX = sub.x;
+        targetY = sub.y;
       }
 
       node.vx! += (targetX - node.x) * SECONDARY_STRENGTH * alpha;
