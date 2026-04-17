@@ -2,12 +2,13 @@ import { polygonHull } from 'd3-polygon';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 
-import type { GraphData, GraphLink, GraphNode } from '../api/graph';
-import { canonicalEdges } from '../lib/canonicalEdges';
-import { createDirectionalForce } from '../lib/directionalForce';
-import type { GraphIndex } from '../lib/graphIndex';
-import { bfsDescendants, CONTAINMENT_RELATIONS } from '../lib/graphIndex';
-import { type ArrowKind, relationStyle } from '../lib/relationStyle';
+import type { GraphData, GraphLink, GraphNode } from '@/shared/domain/types';
+import { useResizeObserver } from '@/shared/hooks/useResizeObserver';
+import { canonicalEdges } from '@/shared/lib/canonicalEdges';
+import { createDirectionalForce } from '@/shared/lib/directionalForce';
+import type { GraphIndex } from '@/shared/lib/graphIndex';
+import { bfsDescendants, CONTAINMENT_RELATIONS } from '@/shared/lib/graphIndex';
+import { type ArrowKind, relationStyle } from '@/shared/lib/relationStyle';
 // We keep the graph topology stable even when the user toggles relation
 // filters, so react-force-graph does not re-initialise the simulation and
 // nodes never get flung off-screen. Filtering happens at draw time only.
@@ -167,21 +168,9 @@ export function GraphView({
   onSelect,
   onNodeRightClick,
 }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { ref: containerRef, size } = useResizeObserver<HTMLDivElement>();
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
-  const [size, setSize] = useState({ width: 0, height: 0 });
   const [hoverId, setHoverId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
-      if (rect) setSize({ width: rect.width, height: rect.height });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // ── Force model ─────────────────────────────────────────────────
   //

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import type { GraphNode } from '../api/graph';
+import type { GraphNode } from '@/shared/domain/types';
 
 type MenuItem = {
   label: string;

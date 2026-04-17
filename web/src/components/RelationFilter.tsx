@@ -1,4 +1,4 @@
-import { ALL_RELATIONS, RELATION_CATEGORIES } from '../lib/relationStyle';
+import { ALL_RELATIONS, RELATION_CATEGORIES } from '@/shared/lib/relationStyle';
 
 type Props = {
   visible: Set<string>;

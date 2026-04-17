@@ -1,6 +1,6 @@
-import type { GraphData, GraphNode } from '../api/graph';
-import type { GraphIndex } from '../lib/graphIndex';
-import { RELATION_CATEGORIES, relationStyle } from '../lib/relationStyle';
+import type { GraphData, GraphNode } from '@/shared/domain/types';
+import type { GraphIndex } from '@/shared/lib/graphIndex';
+import { RELATION_CATEGORIES, relationStyle } from '@/shared/lib/relationStyle';
 
 type Props = {
   selected: GraphNode | null;

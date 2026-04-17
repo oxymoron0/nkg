@@ -1,4 +1,4 @@
-import type { GraphLink } from '../api/graph';
+import type { GraphLink } from '@/shared/domain/types';
 
 /**
  * Directional layout for focused node selection.

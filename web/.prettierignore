@@ -1,4 +1,4 @@
 dist
 node_modules
-src/api/schema.d.ts
+src/shared/api/schema.d.ts
 package-lock.json

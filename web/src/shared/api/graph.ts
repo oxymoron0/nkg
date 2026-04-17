@@ -1,30 +1,11 @@
+import type { GraphData } from '@/shared/domain/types';
+
 import { api } from './client';
 
-export type GraphNode = {
-  id: string;
-  label: string;
-  summary?: string;
-  group?: string;
-};
-
-// react-force-graph mutates source/target from id strings into node objects
-// once the simulation initializes. The wider type reflects both shapes so the
-// renderer can read `.x` / `.y` at draw time without casts.
-export type GraphLink = {
-  id: string;
-  source: string | GraphNode;
-  target: string | GraphNode;
-  relation: string;
-};
-
-export type GraphData = {
-  nodes: GraphNode[];
-  links: GraphLink[];
-  meta: {
-    nodeCount: number;
-    edgeCount: number;
-    relations: string[];
-  };
+type RawGraph = {
+  nodes?: Array<{ id?: string; label?: string; summary?: string; group?: string }>;
+  edges?: Array<{ id?: string; source?: string; target?: string; relation?: string }>;
+  meta?: { node_count?: number; edge_count?: number; relations?: string[] };
 };
 
 export async function fetchGraph(relations?: string[]): Promise<GraphData> {
@@ -63,9 +44,3 @@ export async function fetchGraph(relations?: string[]): Promise<GraphData> {
     },
   };
 }
-
-type RawGraph = {
-  nodes?: Array<{ id?: string; label?: string; summary?: string; group?: string }>;
-  edges?: Array<{ id?: string; source?: string; target?: string; relation?: string }>;
-  meta?: { node_count?: number; edge_count?: number; relations?: string[] };
-};

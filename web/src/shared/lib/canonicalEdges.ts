@@ -1,4 +1,4 @@
-import type { GraphLink, GraphNode } from '../api/graph';
+import type { GraphLink, GraphNode } from '@/shared/domain/types';
 
 // Inverse relations: map secondary side → canonical side. When the backend
 // emits a link in the secondary direction, we flip source/target and rename

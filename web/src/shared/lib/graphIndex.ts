@@ -1,4 +1,4 @@
-import type { GraphData, GraphLink, GraphNode } from '../api/graph';
+import type { GraphData, GraphLink, GraphNode } from '@/shared/domain/types';
 
 // Containment relations are used for hull BFS. We keep `skos:narrower` here
 // because it is the natural "parent → child" descent direction in the raw

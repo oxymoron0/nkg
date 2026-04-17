@@ -1,16 +1,17 @@
 import js from '@eslint/js';
-import tseslint from 'typescript-eslint';
+import boundaries from 'eslint-plugin-boundaries';
+import prettier from 'eslint-config-prettier';
 import react from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
-import unusedImports from 'eslint-plugin-unused-imports';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
-import prettier from 'eslint-config-prettier';
+import unusedImports from 'eslint-plugin-unused-imports';
 import globals from 'globals';
+import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'node_modules', 'src/api/schema.d.ts'],
+    ignores: ['dist', 'node_modules', 'src/shared/api/schema.d.ts'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -30,6 +31,19 @@ export default tseslint.config(
     },
     settings: {
       react: { version: '18.3' },
+      'boundaries/elements': [
+        { type: 'app', pattern: 'src/app/**' },
+        { type: 'feature', pattern: 'src/features/*', mode: 'folder', capture: ['featureName'] },
+        { type: 'shared', pattern: 'src/shared/**' },
+        { type: 'store', pattern: 'src/stores/**' },
+        { type: 'root', pattern: 'src/*', mode: 'file' },
+      ],
+      'import/resolver': {
+        typescript: {
+          alwaysTryTypes: true,
+          project: './tsconfig.app.json',
+        },
+      },
     },
     plugins: {
       react,
@@ -37,6 +51,7 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
       'unused-imports': unusedImports,
       'simple-import-sort': simpleImportSort,
+      boundaries,
     },
     rules: {
       ...react.configs.recommended.rules,
@@ -72,6 +87,37 @@ export default tseslint.config(
 
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
+
+      'boundaries/dependencies': [
+        'error',
+        {
+          default: 'disallow',
+          rules: [
+            {
+              from: { type: 'root' },
+              allow: { to: { type: ['root', 'app', 'feature', 'shared', 'store'] } },
+            },
+            {
+              from: { type: 'app' },
+              allow: { to: { type: ['app', 'feature', 'shared', 'store'] } },
+            },
+            {
+              from: { type: 'feature' },
+              allow: [
+                {
+                  to: {
+                    type: 'feature',
+                    captured: { featureName: '{{from.captured.featureName}}' },
+                  },
+                },
+                { to: { type: ['shared', 'store'] } },
+              ],
+            },
+            { from: { type: 'shared' }, allow: { to: { type: 'shared' } } },
+            { from: { type: 'store' }, allow: { to: { type: 'shared' } } },
+          ],
+        },
+      ],
     },
   },
   {
