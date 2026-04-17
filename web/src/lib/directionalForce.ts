@@ -27,16 +27,16 @@ type Sector = 'up' | 'down' | 'left' | 'right' | 'outer';
 
 type SectorConfig = {
   sector: Sector;
-  minGap: number;     // minimum distance from selected on the primary axis
-  colSpacing: number;  // spacing between nodes along the secondary axis
-  rowSpacing: number;  // spacing between rows/columns if wrapping
-  maxPerRow: number;   // nodes per row before wrapping
+  minGap: number; // minimum distance from selected on the primary axis
+  colSpacing: number; // spacing between nodes along the secondary axis
+  rowSpacing: number; // spacing between rows/columns if wrapping
+  maxPerRow: number; // nodes per row before wrapping
 };
 
 const SECTOR_CONFIGS: Record<Exclude<Sector, 'outer'>, SectorConfig> = {
-  up:    { sector: 'up',    minGap: 60,  colSpacing: 55, rowSpacing: 45, maxPerRow: 6 },
-  down:  { sector: 'down',  minGap: 60,  colSpacing: 55, rowSpacing: 45, maxPerRow: 6 },
-  left:  { sector: 'left',  minGap: 140, colSpacing: 45, rowSpacing: 55, maxPerRow: 4 },
+  up: { sector: 'up', minGap: 60, colSpacing: 55, rowSpacing: 45, maxPerRow: 6 },
+  down: { sector: 'down', minGap: 60, colSpacing: 55, rowSpacing: 45, maxPerRow: 6 },
+  left: { sector: 'left', minGap: 140, colSpacing: 45, rowSpacing: 55, maxPerRow: 4 },
   right: { sector: 'right', minGap: 140, colSpacing: 45, rowSpacing: 55, maxPerRow: 4 },
 };
 
@@ -45,12 +45,12 @@ const SECTOR_CONFIGS: Record<Exclude<Sector, 'outer'>, SectorConfig> = {
  * source or target of the canonical edge.
  */
 const DIRECTION_MAP: Record<string, { asSource: Sector; asTarget: Sector }> = {
-  'skos:broader':      { asSource: 'up',    asTarget: 'down' },
-  'dcterms:hasPart':   { asSource: 'down',  asTarget: 'up' },
-  'dcterms:requires':  { asSource: 'left',  asTarget: 'right' },
-  'schema:nextItem':   { asSource: 'right', asTarget: 'left' },
+  'skos:broader': { asSource: 'up', asTarget: 'down' },
+  'dcterms:hasPart': { asSource: 'down', asTarget: 'up' },
+  'dcterms:requires': { asSource: 'left', asTarget: 'right' },
+  'schema:nextItem': { asSource: 'right', asTarget: 'left' },
   'dcterms:references': { asSource: 'outer', asTarget: 'outer' },
-  'skos:related':      { asSource: 'outer', asTarget: 'outer' },
+  'skos:related': { asSource: 'outer', asTarget: 'outer' },
 };
 
 type ForceNode = {
@@ -76,9 +76,11 @@ type NeighborInfo = {
  * arrangements don't overlap with parent rows.
  */
 function subSectorTarget(
-  px: number, py: number,
+  px: number,
+  py: number,
   sector: Exclude<Sector, 'outer'>,
-  index: number, total: number,
+  index: number,
+  total: number,
 ): { x: number; y: number } {
   const SUB_GAP = 50;
   const SUB_COL = 40;
@@ -89,17 +91,23 @@ function subSectorTarget(
   const offset = col - (nodesInRow - 1) / 2;
 
   switch (sector) {
-    case 'up':    return { x: px + offset * SUB_COL, y: py - SUB_GAP - row * SUB_COL };
-    case 'down':  return { x: px + offset * SUB_COL, y: py + SUB_GAP + row * SUB_COL };
-    case 'left':  return { x: px - SUB_GAP - row * SUB_COL, y: py + offset * SUB_COL };
-    case 'right': return { x: px + SUB_GAP + row * SUB_COL, y: py + offset * SUB_COL };
+    case 'up':
+      return { x: px + offset * SUB_COL, y: py - SUB_GAP - row * SUB_COL };
+    case 'down':
+      return { x: px + offset * SUB_COL, y: py + SUB_GAP + row * SUB_COL };
+    case 'left':
+      return { x: px - SUB_GAP - row * SUB_COL, y: py + offset * SUB_COL };
+    case 'right':
+      return { x: px + SUB_GAP + row * SUB_COL, y: py + offset * SUB_COL };
   }
 }
 
 function sectorTarget(
-  sx: number, sy: number,
+  sx: number,
+  sy: number,
   sector: Exclude<Sector, 'outer'>,
-  index: number, total: number,
+  index: number,
+  total: number,
 ): { x: number; y: number } {
   const cfg = SECTOR_CONFIGS[sector];
   const row = Math.floor(index / cfg.maxPerRow);
@@ -155,9 +163,13 @@ export function createDirectionalForce(
 
     let neighborId: string;
     let isSource: boolean;
-    if (srcId === selectedId) { neighborId = tgtId; isSource = true; }
-    else if (tgtId === selectedId) { neighborId = srcId; isSource = false; }
-    else continue;
+    if (srcId === selectedId) {
+      neighborId = tgtId;
+      isSource = true;
+    } else if (tgtId === selectedId) {
+      neighborId = srcId;
+      isSource = false;
+    } else continue;
 
     const dirConfig = DIRECTION_MAP[link.relation];
     if (!dirConfig) continue;
@@ -174,9 +186,12 @@ export function createDirectionalForce(
   const sectorGroups = new Map<Exclude<Sector, 'outer'>, string[]>();
   for (const n of primaryNeighbors) {
     if (n.sector === 'outer') continue;
-    const s = n.sector as Exclude<Sector, 'outer'>;
+    const s = n.sector;
     let group = sectorGroups.get(s);
-    if (!group) { group = []; sectorGroups.set(s, group); }
+    if (!group) {
+      group = [];
+      sectorGroups.set(s, group);
+    }
     group.push(n.nodeId);
   }
 
@@ -206,22 +221,28 @@ export function createDirectionalForce(
       const other = nodeMap.get(otherId);
       if (!other) continue;
       const val = axis === 'x' ? other.x : other.y;
-      if (val !== undefined) { sum += val; count++; }
+      if (val !== undefined) {
+        sum += val;
+        count++;
+      }
     }
     return count > 0 ? sum / count : 0;
   };
 
   for (const [sector, ids] of sectorGroups) {
-    const axis: 'x' | 'y' = (sector === 'up' || sector === 'down') ? 'x' : 'y';
+    const axis: 'x' | 'y' = sector === 'up' || sector === 'down' ? 'x' : 'y';
     ids.sort((a, b) => barycenter(a, axis) - barycenter(b, axis));
   }
 
   // Assign row/column indices after sorting.
-  const primaryLookup = new Map<string, {
-    sector: Exclude<Sector, 'outer'>;
-    index: number;
-    total: number;
-  }>();
+  const primaryLookup = new Map<
+    string,
+    {
+      sector: Exclude<Sector, 'outer'>;
+      index: number;
+      total: number;
+    }
+  >();
   for (const [sector, ids] of sectorGroups) {
     for (let i = 0; i < ids.length; i++) {
       primaryLookup.set(ids[i], { sector, index: i, total: ids.length });
@@ -263,7 +284,7 @@ export function createDirectionalForce(
     if (!dirConfig) return parentSector; // unknown relation → continue axis
     const dir = bIsSource ? dirConfig.asSource : dirConfig.asTarget;
     return dir; // taxonomy/part-whole/dependency/sequence map to a direction;
-                // related/references map to 'outer'
+    // related/references map to 'outer'
   }
 
   for (const link of links) {
@@ -276,9 +297,13 @@ export function createDirectionalForce(
     let secondaryId: string | null = null;
     let bIsSource = false;
     if (primarySet.has(srcId) && !primarySet.has(tgtId) && tgtId !== selectedId) {
-      primaryId = srcId; secondaryId = tgtId; bIsSource = true;
+      primaryId = srcId;
+      secondaryId = tgtId;
+      bIsSource = true;
     } else if (primarySet.has(tgtId) && !primarySet.has(srcId) && srcId !== selectedId) {
-      primaryId = tgtId; secondaryId = srcId; bIsSource = false;
+      primaryId = tgtId;
+      secondaryId = srcId;
+      bIsSource = false;
     }
     if (!primaryId || !secondaryId) continue;
     if (secondaryInfo.has(secondaryId)) continue; // first parent wins
@@ -301,14 +326,17 @@ export function createDirectionalForce(
     if (info.subSector === 'outer') continue;
     const key = `${info.parentId}|${info.subSector}`;
     let group = secondaryGroups.get(key);
-    if (!group) { group = []; secondaryGroups.set(key, group); }
+    if (!group) {
+      group = [];
+      secondaryGroups.set(key, group);
+    }
     group.push(nodeId);
   }
   // Sort each group by barycenter (excluding selected and parent).
   const secondaryIndex = new Map<string, { index: number; total: number }>();
   for (const [key, ids] of secondaryGroups) {
     const subSector = key.split('|')[1] as Exclude<Sector, 'outer'>;
-    const axis: 'x' | 'y' = (subSector === 'up' || subSector === 'down') ? 'x' : 'y';
+    const axis: 'x' | 'y' = subSector === 'up' || subSector === 'down' ? 'x' : 'y';
     ids.sort((a, b) => barycenter(a, axis) - barycenter(b, axis));
     for (let i = 0; i < ids.length; i++) {
       secondaryIndex.set(ids[i], { index: i, total: ids.length });
@@ -326,10 +354,7 @@ export function createDirectionalForce(
       const node = nodeMap.get(nodeId);
       if (!node || node.x === undefined || node.y === undefined) continue;
 
-      const target = sectorTarget(
-        selected.x, selected.y,
-        info.sector, info.index, info.total,
-      );
+      const target = sectorTarget(selected.x, selected.y, info.sector, info.index, info.total);
 
       node.vx! += (target.x - node.x) * strength * alpha;
       node.vy! += (target.y - node.y) * strength * alpha;
@@ -357,10 +382,18 @@ export function createDirectionalForce(
         targetX = selected.x;
         targetY = selected.y;
         switch (info.parentSector) {
-          case 'up':    targetY = selected.y - extraDist; break;
-          case 'down':  targetY = selected.y + extraDist; break;
-          case 'left':  targetX = selected.x - extraDist; break;
-          case 'right': targetX = selected.x + extraDist; break;
+          case 'up':
+            targetY = selected.y - extraDist;
+            break;
+          case 'down':
+            targetY = selected.y + extraDist;
+            break;
+          case 'left':
+            targetX = selected.x - extraDist;
+            break;
+          case 'right':
+            targetX = selected.x + extraDist;
+            break;
         }
       } else {
         // Sub-sector: position around parent in computed direction with barycenter index.

@@ -25,10 +25,40 @@ NKG_API_URL=http://host:8080 npm run dev    # API 위치 변경
 ## 빌드
 
 ```bash
-npm run build      # tsc + vite build → dist/
+npm run build      # lint + format:check + tsc + vite build → dist/
 npm run preview    # dist/ 로컬 정적 서버
 npm run gen:api    # openapi.yaml → src/api/schema.d.ts 타입 재생성
 ```
+
+`npm run build`는 lint error 또는 Prettier diff가 있으면 즉시 실패한다. Docker 이미지 빌드(`web/Dockerfile`)도 동일 스크립트를 호출하므로 동일 게이트가 적용됨.
+
+## Lint & Format
+
+ESLint(flat config) + Prettier + knip 스택. TypeScript strict(`tsconfig.app.json`)와 함께 사용.
+
+```bash
+npm run lint          # ESLint 검사 (0 error 기준)
+npm run lint:fix      # autofix 가능한 항목 수정
+npm run format        # Prettier 일괄 포맷
+npm run format:check  # 포맷 diff 확인 (CI/빌드용)
+npm run knip          # 미사용 파일/export/dependency 검출
+npm run typecheck     # tsc 타입 체크만
+```
+
+### ESLint 설정 요약 (`eslint.config.js`)
+
+- `@eslint/js` recommended + `typescript-eslint` recommendedTypeChecked (type-aware)
+- `eslint-plugin-react` + `react-hooks` + `react-refresh` (Vite HMR 호환)
+- `eslint-plugin-unused-imports`: 미사용 import 자동 제거
+- `eslint-plugin-simple-import-sort`: import/export 자동 정렬
+- `eslint-config-prettier`: Prettier와 충돌하는 스타일 규칙 비활성
+- `@typescript-eslint/consistent-type-imports`: `import type` 강제
+- `no-console`: `warn`/`error`만 허용
+- 제외 경로: `dist/`, `node_modules/`, `src/api/schema.d.ts` (자동 생성)
+
+### Prettier 설정 (`.prettierrc.json`)
+
+single quote · semicolon · trailing comma all · printWidth 100 · tab 2 · arrow paren always.
 
 ## 디렉터리
 
@@ -64,23 +94,23 @@ web/
 
 ### Phase 1 — 초기 레이아웃
 
-| 힘 | 파라미터 | 역할 |
-|---|---|---|
-| charge | strength -800 | 노드 간 반발 → 겹침 방지 |
-| link (taxonomy) | dist 50, str 0.8 | skos:broader, dcterms:hasPart → 빡빡한 클러스터 |
-| link (dependency) | dist 100, str 0.4 | dcterms:requires |
-| link (association) | dist 200, str 0.1 | skos:related, dcterms:references → 느슨한 연결 |
-| center | 기본값 | 무게중심을 화면 중앙에 |
-| collision | nodeVal = radius | 원형 겹침 방지 |
+| 힘                 | 파라미터          | 역할                                            |
+| ------------------ | ----------------- | ----------------------------------------------- |
+| charge             | strength -800     | 노드 간 반발 → 겹침 방지                        |
+| link (taxonomy)    | dist 50, str 0.8  | skos:broader, dcterms:hasPart → 빡빡한 클러스터 |
+| link (dependency)  | dist 100, str 0.4 | dcterms:requires                                |
+| link (association) | dist 200, str 0.1 | skos:related, dcterms:references → 느슨한 연결  |
+| center             | 기본값            | 무게중심을 화면 중앙에                          |
+| collision          | nodeVal = radius  | 원형 겹침 방지                                  |
 
 ### Phase 2 — 상호작용 (onEngineStop 이후)
 
-| 변경 | 값 | 이유 |
-|------|-----|------|
-| charge strength | -800 → **-150** | 드래그 시 약한 반발만 |
-| charge distanceMax | 없음 → **250** | 먼 노드 반발 차단 |
-| position memory | **str 0.08** | 각 노드를 수렴 위치(home)로 복원 |
-| zoomToFit | 400ms, padding 60 | **초기 1회만** 실행. 이후 줌 레벨 유지 |
+| 변경               | 값                | 이유                                   |
+| ------------------ | ----------------- | -------------------------------------- |
+| charge strength    | -800 → **-150**   | 드래그 시 약한 반발만                  |
+| charge distanceMax | 없음 → **250**    | 먼 노드 반발 차단                      |
+| position memory    | **str 0.08**      | 각 노드를 수렴 위치(home)로 복원       |
+| zoomToFit          | 400ms, padding 60 | **초기 1회만** 실행. 이후 줌 레벨 유지 |
 
 **Position memory vs gravity**: 기존 gravity는 모든 노드를 (0,0) 절대 좌표로 당겨 드래그 시 전체 그래프를 수축시켰음. Position memory는 각 노드를 자신의 수렴 위치(home position)로 당기므로 드래그 시 나머지 노드가 제자리를 유지.
 
@@ -90,15 +120,15 @@ web/
 
 **핵심 메커니즘**:
 
-| 기능 | 설명 |
-|------|------|
-| **선택 노드 pin** | fx/fy 고정 → 섹터 기준점 안정 |
-| **focused link force** | 선택 노드의 link distance/strength를 관계별 극단값으로 변경 |
-| **directional force** (str 0.5) | 이웃을 관계별 방향으로 행/열 배치 |
-| **position memory 면제** | 1차+2차 이웃을 면제 → directional이 100% 작용 |
+| 기능                                        | 설명                                                                                                                                                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **선택 노드 pin**                           | fx/fy 고정 → 섹터 기준점 안정                                                                                                                                                                          |
+| **focused link force**                      | 선택 노드의 link distance/strength를 관계별 극단값으로 변경                                                                                                                                            |
+| **directional force** (str 0.5)             | 이웃을 관계별 방향으로 행/열 배치                                                                                                                                                                      |
+| **position memory 면제**                    | 1차+2차 이웃을 면제 → directional이 100% 작용                                                                                                                                                          |
 | **2차 이웃 recursive sub-sector** (str 0.2) | 1차 이웃 B 주변에 2차 이웃 C를 sub-sector 그리드(SUB_GAP 50, SUB_COL 40, SUB_MAX 4)로 배치. B↔C 관계가 taxonomy/part-whole/dep/seq면 sub-sector, related/refs면 OUTER fallback (parent 섹터 바깥 80px) |
-| **barycenter 정렬** | 섹터 행 내 노드를 연결 대상 평균 좌표로 정렬 → 엣지 교차 최소화 |
-| **선택 해제** | directional 제거, 현재 위치를 새 home으로 저장 (복귀 안 함) |
+| **barycenter 정렬**                         | 섹터 행 내 노드를 연결 대상 평균 좌표로 정렬 → 엣지 교차 최소화                                                                                                                                        |
+| **선택 해제**                               | directional 제거, 현재 위치를 새 home으로 저장 (복귀 안 함)                                                                                                                                            |
 
 **방향 배치 (선택 노드 기준)**:
 
@@ -116,14 +146,14 @@ web/
 
 **관계별 거리 우선순위 (가까운 순)**:
 
-| 우선순위 | 관계 | 기본 dist | 포커스 dist | 방향 |
-|----------|------|----------|-----------|------|
-| 1 | taxonomy (broader/narrower) | 50 | 35 | UP(parent) / DOWN(child) |
-| 2 | part-whole (hasPart/isPartOf) | 50 | 35 | DOWN(part) / UP(whole) |
-| 3 | sequence (nextItem/previousItem) | 80 | 60 | RIGHT(next) / LEFT(prev) |
-| 4 | dependency (requires/isRequiredBy) | 100 | 80 | LEFT(dep) / RIGHT(dependent) |
-| 5 | reference (references/isReferencedBy) | 200 | 250 | OUTER |
-| 6 | association (related) | 200 | 280 | OUTER |
+| 우선순위 | 관계                                  | 기본 dist | 포커스 dist | 방향                         |
+| -------- | ------------------------------------- | --------- | ----------- | ---------------------------- |
+| 1        | taxonomy (broader/narrower)           | 50        | 35          | UP(parent) / DOWN(child)     |
+| 2        | part-whole (hasPart/isPartOf)         | 50        | 35          | DOWN(part) / UP(whole)       |
+| 3        | sequence (nextItem/previousItem)      | 80        | 60          | RIGHT(next) / LEFT(prev)     |
+| 4        | dependency (requires/isRequiredBy)    | 100       | 80          | LEFT(dep) / RIGHT(dependent) |
+| 5        | reference (references/isReferencedBy) | 200       | 250         | OUTER                        |
+| 6        | association (related)                 | 200       | 280         | OUTER                        |
 
 **설계 판단 기록**:
 
@@ -136,6 +166,7 @@ web/
 ## 시각 요소
 
 ### 노드
+
 - 원형, degree 기반 크기 (`6 + 2 * log(1 + degree)`)
 - Top-level Is-A: 진한 블루(`#3A4894`) + 흰 테두리
 - 일반: `#5D6CC1`
@@ -143,20 +174,24 @@ web/
 - Hover 시 비연결 노드/엣지 dim (alpha 0.15)
 
 ### 엣지
+
 - relation별 색/선/화살표 (`lib/relationStyle.ts` 참조)
 - canonicalEdges로 inverse 쌍 merge → pair-count 기반 curvature
 - globalScale ≥ 1.2 에서 엣지 중앙에 relation 이름 속성 박스 표시
 
 ### Hull Overlay
+
 - 아무것도 선택 안 함 → top-level Is-A 각각의 하위 BFS → 반투명 convex hull
 - 노드 선택 → 해당 노드의 containment descendants만 hull
 - `d3-polygon`의 `polygonHull` + centroid 기반 패딩
 
 ### 필터 바 (상단)
+
 - 6 카테고리: Taxonomy, Part-Whole, Dependency, Reference, Association, Sequence
 - 클라이언트 사이드 — 서버 재호출 없음, 시뮬레이션 불변 (linkCanvasObject에서 skip)
 
 ### 상세 패널 (우측 320px)
+
 - 선택 노드: label, id, degree, summary, outgoing/incoming relations
 - 빈 상태: 전체 통계 (노드 수, 엣지 수, top-level 수, relation 분포)
 

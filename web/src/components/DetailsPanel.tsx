@@ -58,7 +58,11 @@ export function DetailsPanel({ selected, graph, index, onSelect }: Props) {
     byRel: Map<string, Set<string>> | undefined,
   ) => {
     if (!byRel || byRel.size === 0) {
-      return <div className="details-empty">No {direction === 'out' ? 'outgoing' : 'incoming'} relations</div>;
+      return (
+        <div className="details-empty">
+          No {direction === 'out' ? 'outgoing' : 'incoming'} relations
+        </div>
+      );
     }
     const entries = Array.from(byRel.entries()).sort(([a], [b]) => a.localeCompare(b));
     return entries.map(([relation, targetIds]) => {
@@ -92,7 +96,12 @@ export function DetailsPanel({ selected, graph, index, onSelect }: Props) {
       <div className="details-section">
         <div className="details-close-row">
           <h2 className="details-title">{selected.label}</h2>
-          <button type="button" className="details-close" onClick={() => onSelect(null)} aria-label="Close">
+          <button
+            type="button"
+            className="details-close"
+            onClick={() => onSelect(null)}
+            aria-label="Close"
+          >
             ×
           </button>
         </div>

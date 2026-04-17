@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
 import { fetchGraph, type GraphData, type GraphNode } from './api/graph';
+import { ContextMenu } from './components/ContextMenu';
+import { DetailsPanel } from './components/DetailsPanel';
 import { GraphView } from './components/GraphView';
 import { RelationFilter } from './components/RelationFilter';
-import { DetailsPanel } from './components/DetailsPanel';
-import { ContextMenu } from './components/ContextMenu';
 import { buildIndex } from './lib/graphIndex';
 import { ALL_RELATIONS } from './lib/relationStyle';
 
@@ -37,7 +38,7 @@ export default function App() {
   }, []);
 
   const index = useMemo(() => (data ? buildIndex(data) : null), [data]);
-  const selected = selectedId && index ? index.nodeById.get(selectedId) ?? null : null;
+  const selected = selectedId && index ? (index.nodeById.get(selectedId) ?? null) : null;
 
   const handleContextMenu = useCallback((node: GraphNode, event: MouseEvent) => {
     event.preventDefault();

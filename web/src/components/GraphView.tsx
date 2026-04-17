@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 import { polygonHull } from 'd3-polygon';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
+
 import type { GraphData, GraphLink, GraphNode } from '../api/graph';
-import type { GraphIndex } from '../lib/graphIndex';
-import { CONTAINMENT_RELATIONS, bfsDescendants } from '../lib/graphIndex';
 import { canonicalEdges } from '../lib/canonicalEdges';
 import { createDirectionalForce } from '../lib/directionalForce';
-import { relationStyle, type ArrowKind } from '../lib/relationStyle';
+import type { GraphIndex } from '../lib/graphIndex';
+import { bfsDescendants, CONTAINMENT_RELATIONS } from '../lib/graphIndex';
+import { type ArrowKind, relationStyle } from '../lib/relationStyle';
 // We keep the graph topology stable even when the user toggles relation
 // filters, so react-force-graph does not re-initialise the simulation and
 // nodes never get flung off-screen. Filtering happens at draw time only.
@@ -39,6 +40,32 @@ const HULL_FILL = 'rgba(96, 165, 250, 0.10)';
 const HULL_FILL_SELECTED = 'rgba(96, 165, 250, 0.22)';
 const HULL_STROKE = 'rgba(96, 165, 250, 0.40)';
 const HULL_LABEL_COLOR = 'rgba(147, 197, 253, 0.85)';
+
+// Link distance/strength tables. Relation closeness priority (1 = closest):
+//   1. taxonomy   (broader/narrower)       — structural hierarchy
+//   2. part-whole (hasPart/isPartOf)       — structural composition
+//   3. sequence   (nextItem/previousItem)  — ordered adjacency
+//   4. dependency (requires/isRequiredBy)  — logical dependency
+//   5. reference  (references/isReferencedBy) — citation, weak
+//   6. association (related)               — thematic, weakest
+// "Focused" values apply only to edges connected to the selected node.
+const LINK_CONFIG: Record<string, { dist: number; str: number }> = {
+  'skos:broader': { dist: 50, str: 0.8 },
+  'dcterms:hasPart': { dist: 50, str: 0.8 },
+  'dcterms:requires': { dist: 100, str: 0.4 },
+  'schema:nextItem': { dist: 80, str: 0.5 },
+  'skos:related': { dist: 200, str: 0.1 },
+  'dcterms:references': { dist: 200, str: 0.1 },
+};
+const FOCUSED_LINK_CONFIG: Record<string, { dist: number; str: number }> = {
+  'skos:broader': { dist: 35, str: 1.0 },
+  'dcterms:hasPart': { dist: 35, str: 1.0 },
+  'dcterms:requires': { dist: 80, str: 0.5 },
+  'schema:nextItem': { dist: 60, str: 0.6 },
+  'skos:related': { dist: 280, str: 0.15 },
+  'dcterms:references': { dist: 250, str: 0.12 },
+};
+const DEFAULT_LINK = { dist: 130, str: 0.3 };
 
 function nodeRadius(node: GraphNode, index: GraphIndex): number {
   const degree = index.degree.get(node.id) ?? 0;
@@ -132,7 +159,14 @@ function controlPoint(
   return { cx: mx + nx * offset, cy: my + ny * offset };
 }
 
-export function GraphView({ data, index, selectedId, visibleRelations, onSelect, onNodeRightClick }: Props) {
+export function GraphView({
+  data,
+  index,
+  selectedId,
+  visibleRelations,
+  onSelect,
+  onNodeRightClick,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -181,46 +215,10 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect,
   // memory so directional force can move them freely to their sectors.
   const exemptFromMemory = useRef<Set<string>>(new Set());
 
-  // ── Link distance/strength tables ──────────────────────────────
-  //
-  // Relation closeness priority (1 = closest):
-  //   1. taxonomy  (broader/narrower)      — structural hierarchy
-  //   2. part-whole (hasPart/isPartOf)      — structural composition
-  //   3. sequence  (nextItem/previousItem)  — ordered adjacency
-  //   4. dependency (requires/isRequiredBy) — logical dependency
-  //   5. reference (references/isReferencedBy) — citation, weak
-  //   6. association (related)              — thematic, weakest
-  //
-  // When the same node pair has multiple relations (e.g. taxonomy AND
-  // related), each relation is a separate canonical link. The shorter,
-  // stronger spring (taxonomy) naturally dominates in the simulation.
-  //
-  // "Focused" values apply ONLY to edges connected to the selected
-  // node. Taxonomy/part-whole pull tighter; association/reference push
-  // further — making the relation-type grouping more pronounced.
-
-  const LINK_CONFIG: Record<string, { dist: number; str: number }> = {
-    'skos:broader': { dist: 50, str: 0.8 },
-    'dcterms:hasPart': { dist: 50, str: 0.8 },
-    'dcterms:requires': { dist: 100, str: 0.4 },
-    'schema:nextItem': { dist: 80, str: 0.5 },
-    'skos:related': { dist: 200, str: 0.1 },
-    'dcterms:references': { dist: 200, str: 0.1 },
-  };
-  const FOCUSED_LINK_CONFIG: Record<string, { dist: number; str: number }> = {
-    'skos:broader': { dist: 35, str: 1.0 },
-    'dcterms:hasPart': { dist: 35, str: 1.0 },
-    'dcterms:requires': { dist: 80, str: 0.5 },
-    'schema:nextItem': { dist: 60, str: 0.6 },
-    'skos:related': { dist: 280, str: 0.15 },
-    'dcterms:references': { dist: 250, str: 0.12 },
-  };
-  const DEFAULT_LINK = { dist: 130, str: 0.3 };
-
   // Link accessors that read selectedIdRef to decide whether a link
   // gets default or focused parameters. d3-force caches the values,
   // so we re-register these functions whenever selection changes.
-  const linkDistFn = (l: unknown): number => {
+  const linkDistFn = useCallback((l: unknown): number => {
     const link = l as GraphLink;
     const rel = link.relation;
     const selId = selectedIdRef.current;
@@ -232,9 +230,9 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect,
       }
     }
     return (LINK_CONFIG[rel] ?? DEFAULT_LINK).dist;
-  };
+  }, []);
 
-  const linkStrFn = (l: unknown): number => {
+  const linkStrFn = useCallback((l: unknown): number => {
     const link = l as GraphLink;
     const rel = link.relation;
     const selId = selectedIdRef.current;
@@ -246,7 +244,32 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect,
       }
     }
     return (LINK_CONFIG[rel] ?? DEFAULT_LINK).str;
-  };
+  }, []);
+
+  // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
+  // single direction, then give each concrete canonical link a stable
+  // curvature so overlapping pairs render on different lanes.
+  const { canonicalData, curvatureById } = useMemo(() => {
+    const canon = canonicalEdges(data.links);
+    const pairCount = new Map<string, number>();
+    const curvature = new Map<string, number>();
+    for (const link of canon) {
+      const src = typeof link.source === 'string' ? link.source : link.source.id;
+      const tgt = typeof link.target === 'string' ? link.target : link.target.id;
+      const key = src < tgt ? `${src}|${tgt}` : `${tgt}|${src}`;
+      const idx = pairCount.get(key) ?? 0;
+      pairCount.set(key, idx + 1);
+      // 1st concrete edge straight, 2nd ±0.18, 3rd ±0.35, …
+      const magnitude = 0.18 * ((idx + 1) >> 1);
+      const sign = idx % 2 === 0 ? 1 : -1;
+      const c = idx === 0 ? 0 : magnitude * sign;
+      curvature.set(link.id, c);
+    }
+    return {
+      canonicalData: { nodes: data.nodes, links: canon },
+      curvatureById: curvature,
+    };
+  }, [data.nodes, data.links]);
 
   // Phase 1 setup: charge, link, position memory.
   useEffect(() => {
@@ -283,7 +306,7 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect,
     };
 
     fg.d3Force('positionMemory', positionMemory as never);
-  }, [data]);
+  }, [data, linkDistFn, linkStrFn]);
 
   // Re-register link distance/strength when selection changes so that
   // d3-force re-evaluates cached per-link values with focused params.
@@ -326,32 +349,7 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect,
         }
       }
     }
-  }, [selectedId, data.nodes]);
-
-  // Canonical links: merge inverse pairs (skos:broader↔narrower, etc.) into a
-  // single direction, then give each concrete canonical link a stable
-  // curvature so overlapping pairs render on different lanes.
-  const { canonicalData, curvatureById } = useMemo(() => {
-    const canon = canonicalEdges(data.links);
-    const pairCount = new Map<string, number>();
-    const curvature = new Map<string, number>();
-    for (const link of canon) {
-      const src = typeof link.source === 'string' ? link.source : link.source.id;
-      const tgt = typeof link.target === 'string' ? link.target : link.target.id;
-      const key = src < tgt ? `${src}|${tgt}` : `${tgt}|${src}`;
-      const idx = pairCount.get(key) ?? 0;
-      pairCount.set(key, idx + 1);
-      // 1st concrete edge straight, 2nd ±0.18, 3rd ±0.35, …
-      const magnitude = 0.18 * ((idx + 1) >> 1);
-      const sign = idx % 2 === 0 ? 1 : -1;
-      const c = idx === 0 ? 0 : magnitude * sign;
-      curvature.set(link.id, c);
-    }
-    return {
-      canonicalData: { nodes: data.nodes, links: canon },
-      curvatureById: curvature,
-    };
-  }, [data.nodes, data.links]);
+  }, [selectedId, data.nodes, canonicalData.links, linkDistFn, linkStrFn]);
 
   const linkCurvatureFor = (link: GraphLink): number => {
     return curvatureById.get(link.id) ?? 0;
@@ -511,10 +509,7 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect,
             onSelect(n.id);
             const fg = fgRef.current;
             if (fg) {
-              fg.d3Force(
-                'directional',
-                createDirectionalForce(n.id, canonicalData.links) as never,
-              );
+              fg.d3Force('directional', createDirectionalForce(n.id, canonicalData.links) as never);
               fg.d3ReheatSimulation();
             }
           }}
@@ -544,9 +539,10 @@ export function GraphView({ data, index, selectedId, visibleRelations, onSelect,
             }
           }}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
-          onNodeRightClick={onNodeRightClick
-            ? (node, event) => onNodeRightClick(node as GraphNode, event)
-            : undefined
+          onNodeRightClick={
+            onNodeRightClick
+              ? (node, event) => onNodeRightClick(node as GraphNode, event)
+              : undefined
           }
           nodeCanvasObject={(node, ctx, globalScale) => {
             const n = node as Positioned;

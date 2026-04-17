@@ -1,6 +1,6 @@
 export type ArrowKind = 'filled-triangle' | 'diamond' | 'open-triangle' | 'small-arrow' | 'none';
 
-export type RelationStyle = {
+type RelationStyle = {
   relation: string;
   category: string;
   color: string;
@@ -9,7 +9,7 @@ export type RelationStyle = {
   arrow: ArrowKind;
 };
 
-export type RelationCategory = {
+type RelationCategory = {
   id: string;
   label: string;
   color: string;

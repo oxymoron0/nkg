@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+
 import type { GraphNode } from '../api/graph';
 
 type MenuItem = {
@@ -60,26 +61,17 @@ export function ContextMenu({ x, y, node, onClose }: Props) {
     {
       label: 'ID 복사',
       onClick: () => {
-        navigator.clipboard.writeText(node.id);
+        void navigator.clipboard.writeText(node.id);
         onClose();
       },
     },
   ];
 
   return (
-    <div
-      ref={menuRef}
-      className="context-menu"
-      style={{ left: x, top: y }}
-    >
+    <div ref={menuRef} className="context-menu" style={{ left: x, top: y }}>
       <div className="context-menu-header">{node.label}</div>
       {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          className="context-menu-item"
-          onClick={item.onClick}
-        >
+        <button key={item.label} type="button" className="context-menu-item" onClick={item.onClick}>
           {item.label}
         </button>
       ))}
