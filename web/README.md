@@ -55,7 +55,7 @@ web/
 │       ├── relationStyle.ts    # 11 relation → 색/선/화살표/카테고리 매핑
 │       ├── graphIndex.ts       # degree, 인접 리스트, top-level, BFS
 │       ├── canonicalEdges.ts   # inverse 쌍 merge (broader↔narrower → broader)
-│       └── directionalForce.ts # 선택 노드 기준 방향별 행/열 배치 + 2차 이웃 편향
+│       └── directionalForce.ts # 선택 노드 기준 방향별 행/열 배치 + 2차 이웃 recursive sub-sector
 ```
 
 ## Force Model
@@ -96,7 +96,7 @@ web/
 | **focused link force** | 선택 노드의 link distance/strength를 관계별 극단값으로 변경 |
 | **directional force** (str 0.5) | 이웃을 관계별 방향으로 행/열 배치 |
 | **position memory 면제** | 1차+2차 이웃을 면제 → directional이 100% 작용 |
-| **2차 이웃 편향** (str 0.15) | 1차 이웃의 연결 노드를 해당 섹터 바깥 방향으로 → 엣지 관통 방지 |
+| **2차 이웃 recursive sub-sector** (str 0.2) | 1차 이웃 B 주변에 2차 이웃 C를 sub-sector 그리드(SUB_GAP 50, SUB_COL 40, SUB_MAX 4)로 배치. B↔C 관계가 taxonomy/part-whole/dep/seq면 sub-sector, related/refs면 OUTER fallback (parent 섹터 바깥 80px) |
 | **barycenter 정렬** | 섹터 행 내 노드를 연결 대상 평균 좌표로 정렬 → 엣지 교차 최소화 |
 | **선택 해제** | directional 제거, 현재 위치를 새 home으로 저장 (복귀 안 함) |
 
@@ -130,7 +130,7 @@ web/
 - **Position memory가 아닌 directional force**: pin/unpin 접근은 모든 노드를 완전 고정해 로컬 충돌 회피까지 차단. 시뮬레이션 기반 force가 다른 힘과 자연스럽게 공존.
 - **Gravity → position memory 교체**: (0,0) 절대 좌표 당김은 드래그 시 전체 수축 유발. home 기준 당김은 개별 노드 복원만.
 - **이웃 면제 필요성**: directional(0.5)과 position memory(0.08)가 동시 작용 시 실효력 0.42로 충분해 보이지만, 목표 위치가 다르면 진동("헤엄") 발생. 면제가 유일한 해법.
-- **2차 이웃 편향 필요성**: 1차 이웃 배치 후 2차 이웃(1차의 related 등)에 방향 가이드 없으면 엣지가 선택 노드를 관통(secondary neighbor drift). 약한 편향(0.15)으로 해소.
+- **2차 이웃 recursive sub-sector 필요성**: 단순 outer 편향은 2차 이웃이 부모 행 끝에 무질서하게 모임. 부모 B 기준 sub-sector 그리드(B↔C 관계 반영)로 배치하면 트리형 계층이 자연스럽게 형성. 강도 0.2 (1차 0.5의 40%)로 1차 위치 우선.
 - **Barycenter 정렬**: Sugiyama 레이어드 레이아웃의 표준 기법. 행 내 노드를 연결 대상 평균 좌표로 정렬해 교차 최소화. force 생성 시 1회 계산.
 
 ## 시각 요소

@@ -113,7 +113,7 @@ Two-phase force 시뮬레이션 + 선택 시 directional 배치.
 | 행/열 그리드 | 둥글게 퍼지지 않고 가로 행(UP/DOWN) 또는 세로 열(LEFT/RIGHT)로 나열. 다수 시 자동 줄바꿈 |
 | barycenter 정렬 | 섹터 내 노드를 연결 대상 평균 좌표로 정렬 → 행 내 엣지 교차 최소화 (Sugiyama 기법) |
 | position memory 면제 | 1차+2차 이웃을 면제하여 directional이 100% 작용 (면제 안 하면 0.08이 0.5을 73% 흡수해 수렴 극도로 느림) |
-| 2차 이웃 편향 | 1차 이웃의 연결 노드(2차)를 해당 섹터 바깥 방향으로 약한 편향(0.15) → 엣지가 선택 노드를 관통하지 않음 |
+| 2차 이웃 recursive sub-sector | 1차 이웃 B 주변에 2차 이웃 C를 sub-sector 그리드로 배치 (str 0.2). B↔C 관계가 taxonomy/part-whole/dep/sequence면 해당 sub-sector(SUB_GAP 50, SUB_COL 40, SUB_MAX 4), related/references면 OUTER fallback (parent 섹터 바깥 80px) |
 | 선택 해제 | directional 제거, 현재 위치를 새 home으로 저장 (복귀 안 함) |
 
 **관계별 거리 우선순위 (가까운 순)**:
@@ -126,6 +126,58 @@ Two-phase force 시뮬레이션 + 선택 시 directional 배치.
 | 4 | dependency (requires/isRequiredBy) | 100 | 80 | LEFT(dep) / RIGHT(dependent) |
 | 5 | reference (references/isReferencedBy) | 200 | 250 | OUTER |
 | 6 | association (related) | 200 | 280 | OUTER |
+
+### 시뮬레이션 파라미터 단일 정의 (Cheatsheet)
+
+모든 force/거리/강도 값을 한 곳에서 확인. 변경 시 이 표와 코드(`web/src/lib/directionalForce.ts`, `web/src/components/GraphView.tsx`)를 함께 갱신.
+
+| 카테고리 | 파라미터 | 값 | 위치 |
+|---------|---------|-----|------|
+| **Phase 1 charge** | strength | -800 | GraphView Phase1 useEffect |
+| **Phase 2 charge** | strength | -150 | GraphView onEngineStop |
+| | distanceMax | 250 | 동상 |
+| **link force (base)** | taxonomy dist/str | 50 / 0.8 | GraphView LINK_CONFIG |
+| | part-whole dist/str | 50 / 0.8 | 동상 |
+| | dependency dist/str | 100 / 0.4 | 동상 |
+| | sequence dist/str | 80 / 0.5 | 동상 |
+| | reference dist/str | 200 / 0.1 | 동상 |
+| | related dist/str | 200 / 0.1 | 동상 |
+| | default dist/str | 130 / 0.3 | DEFAULT_LINK |
+| **link force (focused, 선택 노드 엣지)** | taxonomy dist/str | 35 / 1.0 | FOCUSED_LINK_CONFIG |
+| | part-whole dist/str | 35 / 1.0 | 동상 |
+| | dependency dist/str | 80 / 0.5 | 동상 |
+| | sequence dist/str | 60 / 0.6 | 동상 |
+| | reference dist/str | 250 / 0.12 | 동상 |
+| | related dist/str | 280 / 0.15 | 동상 |
+| **position memory** | strength | 0.08 | GraphView positionMemory force |
+| | exempt | 1차 + 2차 이웃 | 동상 |
+| **directional (1차)** | strength | 0.5 | createDirectionalForce default |
+| | UP/DOWN minGap | 60 | SECTOR_CONFIGS |
+| | UP/DOWN colSpacing | 55 | 동상 |
+| | UP/DOWN rowSpacing | 45 | 동상 |
+| | UP/DOWN maxPerRow | 6 | 동상 |
+| | LEFT/RIGHT minGap | 140 | 동상 |
+| | LEFT/RIGHT colSpacing | 45 | 동상 |
+| | LEFT/RIGHT rowSpacing | 55 | 동상 |
+| | LEFT/RIGHT maxPerRow | 4 | 동상 |
+| **directional (2차, recursive)** | strength | 0.2 | SECONDARY_STRENGTH |
+| | sub SUB_GAP | 50 | subSectorTarget |
+| | sub SUB_COL | 40 | 동상 |
+| | sub SUB_MAX | 4 | 동상 |
+| | OUTER fallback gap | 80 | SECONDARY_OUTER_GAP |
+| **center** | strength | 기본값 | (제거하지 않음) |
+| **collision** | radius | nodeVal = nodeRadius | ForceGraph2D nodeVal prop |
+| **alpha** | d3AlphaDecay | 0.02 | ForceGraph2D prop |
+| | d3VelocityDecay | 0.3 | 동상 |
+| | cooldownTicks | 200 | 동상 |
+| **node 시각** | radius | 6 + 2*log(1+degree) | nodeRadius() |
+| | top-level color | #3A4894 | NODE_TOP_LEVEL_COLOR |
+| | normal color | #5D6CC1 | NODE_COLOR |
+| | selected ring | #fbbf24 | NODE_SELECTED_RING |
+| | hover ring | #9ca3af | NODE_HOVER_RING |
+| | dim alpha | 0.15 | DIM_ALPHA |
+| **곡률 (curvature)** | 단일 엣지 | 0 | linkCurvatureFor |
+| | 양방향 N번째 | 0.18*((N+1)>>1)*sign | 동상 |
 
 ### 시각 요소
 
