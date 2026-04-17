@@ -1,4 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignore": ["src/shared/api/schema.d.ts"]
+  "ignore": ["src/shared/api/schema.d.ts"],
+  "ignoreDependencies": ["@testing-library/dom", "@testing-library/react"]
 }
