@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { ContextMenu } from '@/features/context-menu';
+import { DetailsPanel } from '@/features/details';
+import { RelationFilter } from '@/features/filter';
 import { fetchGraph } from '@/shared/api/graph';
 import type { GraphData, GraphNode } from '@/shared/domain/types';
 import { buildIndex } from '@/shared/lib/graphIndex';
 import { ALL_RELATIONS } from '@/shared/lib/relationStyle';
 
-import { ContextMenu } from './components/ContextMenu';
-import { DetailsPanel } from './components/DetailsPanel';
 import { GraphView } from './components/GraphView';
-import { RelationFilter } from './components/RelationFilter';
 
 type ContextMenuState = {
   x: number;

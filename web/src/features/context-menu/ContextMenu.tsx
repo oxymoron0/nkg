@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 
 import type { GraphNode } from '@/shared/domain/types';
 
+import { notionPageUrl } from './notionUrl';
+
 type MenuItem = {
   label: string;
   icon?: string;
@@ -14,13 +16,6 @@ type Props = {
   node: GraphNode;
   onClose: () => void;
 };
-
-function notionPageUrl(pageId: string, protocol: 'https' | 'notion'): string {
-  // Notion URL router requires the undashed 32-char hex ID.
-  // Workspace slug is included for team workspace compatibility.
-  const id = pageId.replace(/-/g, '');
-  return `${protocol}://www.notion.so/leorca/${id}`;
-}
 
 export function ContextMenu({ x, y, node, onClose }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
