@@ -57,7 +57,7 @@ export default function App() {
           </>
         )}
       </main>
-      {contextMenu && <ContextMenu />}
+      {contextMenu && index && <ContextMenu index={index} />}
     </div>
   );
 }

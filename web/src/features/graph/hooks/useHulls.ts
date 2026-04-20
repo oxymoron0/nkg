@@ -1,6 +1,11 @@
 import { useMemo } from 'react';
 
-import { bfsDescendants, CONTAINMENT_RELATIONS, type GraphIndex } from '@/shared/lib/graphIndex';
+import {
+  bfsDescendants,
+  CONTAINMENT_RELATIONS,
+  displayLabelFor,
+  type GraphIndex,
+} from '@/shared/lib/graphIndex';
 
 import type { Hull } from '../types';
 
@@ -22,8 +27,7 @@ export function useHulls(index: GraphIndex, selectedId: string | null): Hull[] {
     for (const rootId of roots) {
       const members = bfsDescendants(index, rootId, CONTAINMENT_RELATIONS);
       if (members.size < 2) continue;
-      const root = index.nodeById.get(rootId);
-      plan.push({ rootId, rootLabel: root?.label ?? rootId, members });
+      plan.push({ rootId, rootLabel: displayLabelFor(index, rootId), members });
     }
     return plan;
   }, [index, selectedId]);

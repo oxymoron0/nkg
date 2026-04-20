@@ -1,5 +1,7 @@
 import type { GraphData, GraphLink, GraphNode } from '@/shared/domain/types';
 
+import { buildDisplayLabels } from './displayLabel';
+
 // Containment relations are used for hull BFS. We keep `skos:narrower` here
 // because it is the natural "parent → child" descent direction in the raw
 // backend data (before canonical merge). `dcterms:hasPart` is already in the
@@ -17,7 +19,16 @@ export type GraphIndex = {
   topLevel: Set<string>;
   // per-relation count (raw, both directions)
   relationCount: Map<string, number>;
+  // Only populated for nodes whose label collides with at least one sibling.
+  // Value is "label (parentLabel)" to disambiguate homonyms in the UI.
+  displayLabel: Map<string, string>;
 };
+
+export function displayLabelFor(index: GraphIndex, nodeId: string): string {
+  const override = index.displayLabel.get(nodeId);
+  if (override) return override;
+  return index.nodeById.get(nodeId)?.label ?? nodeId;
+}
 
 function ensureNestedSet(
   map: Map<string, Map<string, Set<string>>>,
@@ -72,7 +83,9 @@ export function buildIndex(data: GraphData): GraphIndex {
     }
   }
 
-  return { nodeById, degree, outgoing, incoming, topLevel, relationCount };
+  const displayLabel = buildDisplayLabels(data.nodes, outgoing, nodeById);
+
+  return { nodeById, degree, outgoing, incoming, topLevel, relationCount, displayLabel };
 }
 
 export function bfsDescendants(
