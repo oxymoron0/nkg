@@ -97,10 +97,9 @@ export function useForceSimulation({ fgRef, data }: Params): SimulationApi {
     link?.distance(linkDistFn);
     link?.strength(linkStrFn);
 
-    fg.d3Force('gravity', null);
-
     type MemNode = { id?: string; x?: number; y?: number; vx?: number; vy?: number };
     let memNodes: MemNode[] = [];
+    let gravityNodes: MemNode[] = [];
 
     function positionMemory(alpha: number) {
       for (const n of memNodes) {
@@ -118,7 +117,25 @@ export function useForceSimulation({ fgRef, data }: Params): SimulationApi {
       memNodes = nodes;
     };
 
+    // Gentle pull toward the origin so nodes don't fly apart during the
+    // initial layout and don't creep outward after many interactions.
+    // Strength stays well below POSITION_MEMORY_STRENGTH (0.08) so once
+    // Phase 2 settles, positionMemory dominates and the "swimming" drag
+    // artefact does not return.
+    const GRAVITY_STRENGTH = 0.01;
+    function gravity(alpha: number) {
+      for (const n of gravityNodes) {
+        if (n.x === undefined || n.y === undefined) continue;
+        n.vx! -= n.x * GRAVITY_STRENGTH * alpha;
+        n.vy! -= n.y * GRAVITY_STRENGTH * alpha;
+      }
+    }
+    gravity.initialize = (nodes: MemNode[]) => {
+      gravityNodes = nodes;
+    };
+
     fg.d3Force('positionMemory', positionMemory as never);
+    fg.d3Force('gravity', gravity as never);
   }, [fgRef, data, linkDistFn, linkStrFn]);
 
   const handleEngineStop = useCallback(() => {
