@@ -1,4 +1,4 @@
-import type { GraphIndex } from '@/shared/lib/graphIndex';
+import { displayLabelFor, type GraphIndex } from '@/shared/lib/graphIndex';
 
 import {
   LABEL_COLOR,
@@ -62,7 +62,7 @@ export function drawNode(
   ctx.fillStyle = LABEL_COLOR;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.fillText(n.label, n.x, n.y + radius + 2 / globalScale);
+  ctx.fillText(displayLabelFor(index, n.id), n.x, n.y + radius + 2 / globalScale);
   ctx.globalAlpha = 1;
 }
 

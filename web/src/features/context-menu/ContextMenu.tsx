@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 
+import { displayLabelFor, type GraphIndex } from '@/shared/lib/graphIndex';
 import { useGraphStore } from '@/stores/graphStore';
 
 import { notionPageUrl } from './notionUrl';
@@ -10,7 +11,11 @@ type MenuItem = {
   onClick: () => void;
 };
 
-export function ContextMenu() {
+type Props = {
+  index: GraphIndex;
+};
+
+export function ContextMenu({ index }: Props) {
   const contextMenu = useGraphStore((s) => s.contextMenu);
   const onClose = useGraphStore((s) => s.closeContextMenu);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -56,7 +61,7 @@ export function ContextMenu() {
 
   return (
     <div ref={menuRef} className="context-menu" style={{ left: x, top: y }}>
-      <div className="context-menu-header">{node.label}</div>
+      <div className="context-menu-header">{displayLabelFor(index, node.id)}</div>
       {items.map((item) => (
         <button key={item.label} type="button" className="context-menu-item" onClick={item.onClick}>
           {item.label}

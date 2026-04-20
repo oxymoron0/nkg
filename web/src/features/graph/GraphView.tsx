@@ -3,7 +3,7 @@ import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 
 import type { GraphData, GraphLink, GraphNode } from '@/shared/domain/types';
 import { useResizeObserver } from '@/shared/hooks/useResizeObserver';
-import type { GraphIndex } from '@/shared/lib/graphIndex';
+import { displayLabelFor, type GraphIndex } from '@/shared/lib/graphIndex';
 import { useGraphStore } from '@/stores/graphStore';
 
 import { DIM_ALPHA } from './force/config';
@@ -206,7 +206,7 @@ export function GraphView({ data, index }: Props) {
           height={size.height}
           backgroundColor="#0f1419"
           nodeId="id"
-          nodeLabel={(n) => (n as GraphNode).label}
+          nodeLabel={(n) => displayLabelFor(index, (n as GraphNode).id)}
           linkCurvature={(link) => curvatureById.get((link as GraphLink).id) ?? 0}
           cooldownTicks={200}
           d3AlphaDecay={0.02}

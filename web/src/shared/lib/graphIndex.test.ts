@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { GraphData, GraphLink, GraphNode } from '@/shared/domain/types';
 
-import { bfsDescendants, buildIndex, CONTAINMENT_RELATIONS } from './graphIndex';
+import { bfsDescendants, buildIndex, CONTAINMENT_RELATIONS, displayLabelFor } from './graphIndex';
 
 function node(id: string, label = id): GraphNode {
   return { id, label };
@@ -77,6 +77,30 @@ describe('buildIndex', () => {
     const data = mkData([node('solo')], []);
     const index = buildIndex(data);
     expect(index.topLevel.has('solo')).toBe(true);
+  });
+
+  it('exposes an empty displayLabel map when no labels collide', () => {
+    const data = mkData([node('a', 'Alpha'), node('b', 'Beta')], []);
+    const index = buildIndex(data);
+    expect(index.displayLabel.size).toBe(0);
+    expect(displayLabelFor(index, 'a')).toBe('Alpha');
+    expect(displayLabelFor(index, 'missing')).toBe('missing');
+  });
+
+  it('fills displayLabel only for homonym nodes using skos:broader parent', () => {
+    const data = mkData(
+      [
+        node('g1', '그래프'),
+        node('g2', '그래프'),
+        node('stat', '통계학'),
+        node('disc', '이산수학'),
+      ],
+      [link('l1', 'g1', 'stat', 'skos:broader'), link('l2', 'g2', 'disc', 'skos:broader')],
+    );
+    const index = buildIndex(data);
+    expect(displayLabelFor(index, 'g1')).toBe('그래프 (통계학)');
+    expect(displayLabelFor(index, 'g2')).toBe('그래프 (이산수학)');
+    expect(displayLabelFor(index, 'stat')).toBe('통계학');
   });
 
   it('handles links where source/target are already node refs (post-simulation shape)', () => {

@@ -1,5 +1,5 @@
 import type { GraphData } from '@/shared/domain/types';
-import type { GraphIndex } from '@/shared/lib/graphIndex';
+import { displayLabelFor, type GraphIndex } from '@/shared/lib/graphIndex';
 import { RELATION_CATEGORIES, relationStyle } from '@/shared/lib/relationStyle';
 import { useGraphStore } from '@/stores/graphStore';
 
@@ -79,10 +79,11 @@ export function DetailsPanel({ graph, index }: Props) {
           <ul>
             {Array.from(targetIds).map((id) => {
               const target = index.nodeById.get(id);
+              const label = target ? displayLabelFor(index, id) : id.slice(0, 8) + '…';
               return (
                 <li key={id}>
                   <button type="button" className="link-button" onClick={() => setSelectedId(id)}>
-                    {target?.label ?? id.slice(0, 8) + '…'}
+                    {label}
                   </button>
                 </li>
               );
@@ -97,7 +98,7 @@ export function DetailsPanel({ graph, index }: Props) {
     <aside className="details-panel">
       <div className="details-section">
         <div className="details-close-row">
-          <h2 className="details-title">{selected.label}</h2>
+          <h2 className="details-title">{displayLabelFor(index, selected.id)}</h2>
           <button
             type="button"
             className="details-close"
