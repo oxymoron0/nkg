@@ -103,11 +103,21 @@ export function drawLink(
   ctx.globalAlpha = 1;
 }
 
-/** Invisible hit region used by react-force-graph's pointer picking. */
+/** Extra pixels past the node's visible radius that still count as "on the node",
+ *  not on the link. Must match the NODE_HIT_PADDING in drawNode.ts. */
+const LINK_HIT_TRIM = 8;
+
+/**
+ * Invisible hit region used by react-force-graph's pointer picking. The
+ * line is trimmed at both endpoints so it does not overlap the node hit
+ * circles — otherwise the link's 6-px strip penetrates the node centre
+ * and steals clicks from small-degree nodes.
+ */
 export function paintLinkPointerArea(
   l: GraphLink,
   color: string,
   ctx: CanvasRenderingContext2D,
+  index: GraphIndex,
   visibleRelations: Set<string>,
 ): void {
   if (!visibleRelations.has(l.relation)) return;
@@ -123,10 +133,25 @@ export function paintLinkPointerArea(
   ) {
     return;
   }
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const len = Math.hypot(dx, dy);
+  const sourceRadius = nodeRadius(source.id, index) + LINK_HIT_TRIM;
+  const targetRadius = nodeRadius(target.id, index) + LINK_HIT_TRIM;
+  // Skip degenerate / too-short links where the trims would meet or cross.
+  if (len <= sourceRadius + targetRadius) return;
+
+  const ux = dx / len;
+  const uy = dy / len;
+  const startX = source.x + ux * sourceRadius;
+  const startY = source.y + uy * sourceRadius;
+  const endX = target.x - ux * targetRadius;
+  const endY = target.y - uy * targetRadius;
+
   ctx.strokeStyle = color;
   ctx.lineWidth = 6;
   ctx.beginPath();
-  ctx.moveTo(source.x, source.y);
-  ctx.lineTo(target.x, target.y);
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(endX, endY);
   ctx.stroke();
 }

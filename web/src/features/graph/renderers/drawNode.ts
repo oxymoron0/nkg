@@ -66,6 +66,9 @@ export function drawNode(
   ctx.globalAlpha = 1;
 }
 
+/** Extra pixels added to the node's visible radius to widen the hit target. */
+const NODE_HIT_PADDING = 8;
+
 export function paintNodePointerArea(
   n: Positioned,
   color: string,
@@ -75,6 +78,9 @@ export function paintNodePointerArea(
   if (n.x === undefined || n.y === undefined) return;
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(n.x, n.y, nodeRadius(n.id, index) + 2, 0, Math.PI * 2);
+  // Generous padding so small-degree nodes (radius 6) are not lost in the
+  // noise of crossing link hit-strips. Paired with the trimmed link hit
+  // line in drawLink.ts so the two regions don't overlap near the node.
+  ctx.arc(n.x, n.y, nodeRadius(n.id, index) + NODE_HIT_PADDING, 0, Math.PI * 2);
   ctx.fill();
 }

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 
 import type { GraphData, GraphLink, GraphNode } from '@/shared/domain/types';
@@ -83,7 +83,7 @@ export function GraphView({ data, index }: Props) {
     [data.nodes, canonicalData.links, setSelectedId, selectedIdRef],
   );
 
-  const handleBackgroundClick = useCallback(() => {
+  const clearSelection = useCallback(() => {
     if (selectedIdRef.current) {
       unpinNodeById(data.nodes, selectedIdRef.current);
     }
@@ -94,6 +94,22 @@ export function GraphView({ data, index }: Props) {
       snapshotHomes(data.nodes, homePositionsRef.current);
     }
   }, [data.nodes, setSelectedId, selectedIdRef, homePositionsRef]);
+
+  // Escape clears the current selection. We deliberately do NOT pass
+  // `onBackgroundClick` to ForceGraph2D: that prop flips an internal
+  // `state.onBackgroundClick` check that activates an over-eager
+  // mouse-drag detector in force-graph — any pointermove between
+  // mousedown and mouseup marks the gesture as a drag and drops the
+  // click callback, so users had to click ~10 times before onNodeClick
+  // fired. See force-graph.js:12540. The DetailsPanel × button and this
+  // keyboard shortcut replace the "click empty canvas" UX.
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') clearSelection();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [clearSelection]);
 
   const handleNodeRightClick = useCallback(
     (node: object, event: MouseEvent) => {
@@ -126,7 +142,6 @@ export function GraphView({ data, index }: Props) {
           onEngineStop={handleEngineStop}
           onNodeDragEnd={handleNodeDragEnd}
           onNodeClick={handleNodeClick}
-          onBackgroundClick={handleBackgroundClick}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
           onNodeRightClick={handleNodeRightClick}
           nodeCanvasObject={(node, ctx, scale) => {
@@ -152,7 +167,7 @@ export function GraphView({ data, index }: Props) {
             });
           }}
           linkPointerAreaPaint={(link, color, ctx) => {
-            paintLinkPointerArea(link as GraphLink, color, ctx, visibleRelations);
+            paintLinkPointerArea(link as GraphLink, color, ctx, index, visibleRelations);
           }}
         />
       )}
