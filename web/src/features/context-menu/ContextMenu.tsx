@@ -15,22 +15,16 @@ export function ContextMenu() {
   const onClose = useGraphStore((s) => s.closeContextMenu);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close on click outside or Escape.
+  // Escape closes the menu. Outside-click closure is handled centrally in
+  // GraphView's document-level pointer tracker so that a single gesture
+  // can both close the menu AND defer the "click empty canvas clears
+  // selection" UX to the next gesture.
   useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    document.addEventListener('mousedown', handleClick);
     document.addEventListener('keydown', handleKey);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('keydown', handleKey);
-    };
+    return () => document.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
   if (!contextMenu) return null;

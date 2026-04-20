@@ -29,10 +29,29 @@ export function GraphView({ data, index }: Props) {
   const visibleRelations = useGraphStore((s) => s.visibleRelations);
   const setSelectedId = useGraphStore((s) => s.setSelectedId);
   const openContextMenu = useGraphStore((s) => s.openContextMenu);
+  const closeContextMenu = useGraphStore((s) => s.closeContextMenu);
 
   const { ref: containerRef, size } = useResizeObserver<HTMLDivElement>();
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [hoverId, setHoverId] = useState<string | null>(null);
+
+  // Gesture tracking for manual outside-click handling. We do NOT pass
+  // `onBackgroundClick` to ForceGraph2D because that prop re-activates
+  // force-graph's over-eager mouse-drag detector (any pointermove between
+  // mousedown and mouseup drops the click callback). Instead we track
+  // pointer events at the document level so one place decides:
+  //   1. Was the context menu open at pointerdown? → close it (and swallow
+  //      the "clear selection" side effect this gesture).
+  //   2. Did the gesture hit a node or link? → handlers set
+  //      `objectClickedRef`; pointerup leaves the selection alone.
+  //   3. Otherwise: small-delta click on empty graph area → clearSelection.
+  const pointerDownStateRef = useRef<{
+    x: number;
+    y: number;
+    button: number;
+    closedMenu: boolean;
+  } | null>(null);
+  const objectClickedRef = useRef(false);
 
   const { canonicalData, curvatureById } = useCanonicalEdges(data);
 
@@ -68,6 +87,7 @@ export function GraphView({ data, index }: Props) {
 
   const handleNodeClick = useCallback(
     (node: object) => {
+      objectClickedRef.current = true;
       const n = node as Positioned;
       if (selectedIdRef.current) {
         unpinNodeById(data.nodes, selectedIdRef.current);
@@ -83,6 +103,13 @@ export function GraphView({ data, index }: Props) {
     [data.nodes, canonicalData.links, setSelectedId, selectedIdRef],
   );
 
+  // No-op handler whose only job is to mark the current gesture as an
+  // object click so pointerup does not treat it as a background click.
+  // Clicks on edges should NOT clear the node selection.
+  const handleLinkClick = useCallback(() => {
+    objectClickedRef.current = true;
+  }, []);
+
   const clearSelection = useCallback(() => {
     if (selectedIdRef.current) {
       unpinNodeById(data.nodes, selectedIdRef.current);
@@ -95,21 +122,70 @@ export function GraphView({ data, index }: Props) {
     }
   }, [data.nodes, setSelectedId, selectedIdRef, homePositionsRef]);
 
-  // Escape clears the current selection. We deliberately do NOT pass
-  // `onBackgroundClick` to ForceGraph2D: that prop flips an internal
-  // `state.onBackgroundClick` check that activates an over-eager
-  // mouse-drag detector in force-graph — any pointermove between
-  // mousedown and mouseup marks the gesture as a drag and drops the
-  // click callback, so users had to click ~10 times before onNodeClick
-  // fired. See force-graph.js:12540. The DetailsPanel × button and this
-  // keyboard shortcut replace the "click empty canvas" UX.
+  // Unified document-level pointer + keyboard handler.
+  //
+  // IMPORTANT: do NOT pass `onBackgroundClick` to ForceGraph2D. That prop
+  // flips an internal `state.onBackgroundClick` check which activates an
+  // over-eager mouse-drag detector inside force-graph — any pointermove
+  // between mousedown and mouseup marks the gesture as a drag and drops
+  // every click callback (force-graph.js:12540). Symptom: users had to
+  // click ~10 times before onNodeClick fired. The listeners below
+  // reproduce "click empty canvas clears selection" and
+  // "click outside the context menu closes it" without re-activating
+  // that detector.
   useEffect(() => {
+    const CLICK_TOLERANCE_PX = 4;
+
+    const inside = (el: EventTarget | null, selector: string): boolean =>
+      el instanceof Element && el.closest(selector) !== null;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      objectClickedRef.current = false;
+      const menuWasOpen = useGraphStore.getState().contextMenu !== null;
+      const clickInsideMenu = inside(e.target, '.context-menu');
+      let closedMenu = false;
+      if (menuWasOpen && !clickInsideMenu) {
+        closeContextMenu();
+        closedMenu = true;
+      }
+      pointerDownStateRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        button: e.button,
+        closedMenu,
+      };
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      const start = pointerDownStateRef.current;
+      pointerDownStateRef.current = null;
+      if (!start || start.button !== 0) return; // only left-button gestures
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (Math.hypot(dx, dy) > CLICK_TOLERANCE_PX) return; // drag / pan
+      if (start.closedMenu) return; // first click only closes the menu
+      if (!inside(e.target, '.graph')) return; // click outside canvas
+
+      // force-graph schedules onNodeClick / onLinkClick via rAF, so defer
+      // one frame before consulting `objectClickedRef`.
+      requestAnimationFrame(() => {
+        if (!objectClickedRef.current) clearSelection();
+      });
+    };
+
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') clearSelection();
     };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('pointerup', handlePointerUp);
     document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [clearSelection]);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [clearSelection, closeContextMenu]);
 
   const handleNodeRightClick = useCallback(
     (node: object, event: MouseEvent) => {
@@ -142,6 +218,7 @@ export function GraphView({ data, index }: Props) {
           onEngineStop={handleEngineStop}
           onNodeDragEnd={handleNodeDragEnd}
           onNodeClick={handleNodeClick}
+          onLinkClick={handleLinkClick}
           onNodeHover={(node) => setHoverId(node ? (node as GraphNode).id : null)}
           onNodeRightClick={handleNodeRightClick}
           nodeCanvasObject={(node, ctx, scale) => {
